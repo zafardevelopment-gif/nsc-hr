@@ -9,6 +9,9 @@ import { useUser } from '@/lib/hooks';
 import { WorkEntry } from '@/types';
 import { formatDate, formatTime } from '@/lib/utils';
 import toast from 'react-hot-toast';
+import * as XLSX from 'xlsx';
+
+const PAGE_SIZE = 10;
 
 export default function WorkApprovalPage() {
   const { user } = useUser();
@@ -19,6 +22,8 @@ export default function WorkApprovalPage() {
   const [adjHours, setAdjHours] = useState('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -64,12 +69,30 @@ export default function WorkApprovalPage() {
     rejected: entries.filter(e => e.status === 'rejected').length,
   };
 
+  const filtered = entries.filter(e => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    const emp = e.employee as { full_name: string; employee_code: string } | undefined;
+    return emp?.full_name?.toLowerCase().includes(q) || emp?.employee_code?.toLowerCase().includes(q) || e.task_description?.toLowerCase().includes(q);
+  });
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
   if (!user) return null;
 
   return (
     <>
       <AdminTopbar title="Work Entry Approvals" user={user}
-        actions={<Button variant="ghost" icon="📊">Export</Button>}
+        actions={<Button variant="ghost" icon="📊" onClick={() => {
+          const ws = (XLSX as typeof import('xlsx')).utils.json_to_sheet(entries.map(e => {
+            const emp = e.employee as { full_name: string; employee_code: string } | undefined;
+            return { Code: emp?.employee_code, Name: emp?.full_name, Date: e.entry_date, Hours: e.adjusted_hours || e.total_hours, Description: e.task_description, Status: e.status };
+          }));
+          const wb = (XLSX as typeof import('xlsx')).utils.book_new();
+          (XLSX as typeof import('xlsx')).utils.book_append_sheet(wb, ws, 'Work Entries');
+          (XLSX as typeof import('xlsx')).writeFile(wb, `work-entries-${tab}.xlsx`);
+          toast.success('Excel exported');
+        }}>Export Excel</Button>}
       />
       <div className="page-content">
         <Tabs
@@ -79,11 +102,14 @@ export default function WorkApprovalPage() {
             { key: 'rejected', label: 'Rejected', count: counts.rejected },
           ]}
           active={tab}
-          onChange={t => { setTab(t); setSelected(null); }}
+          onChange={t => { setTab(t); setSelected(null); setPage(1); }}
         />
 
         <div style={{ display: 'grid', gridTemplateColumns: selected ? '1fr 380px' : '1fr', gap: 16 }}>
           <div className="card" style={{ overflow: 'hidden' }}>
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-2)' }}>
+              <input className="form-input" placeholder="Search by employee or description..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} style={{ maxWidth: 340 }} />
+            </div>
             <div className="table-wrap">
               <table className="data-table">
                 <thead>
@@ -92,9 +118,9 @@ export default function WorkApprovalPage() {
                 <tbody>
                   {loading ? (
                     <tr><td colSpan={6}><div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>Loading...</div></td></tr>
-                  ) : entries.length === 0 ? (
+                  ) : paged.length === 0 ? (
                     <tr><td colSpan={6}><div className="empty-state"><div className="empty-icon">✅</div><div>No {tab} entries</div></div></td></tr>
-                  ) : entries.map(e => {
+                  ) : paged.map(e => {
                     const emp = e.employee as { full_name: string; employee_code: string } | undefined;
                     return (
                       <tr key={e.id} style={{ background: selected?.id === e.id ? 'var(--primary-light)' : '' }}>
@@ -135,6 +161,18 @@ export default function WorkApprovalPage() {
                 </tbody>
               </table>
             </div>
+            {totalPages > 1 && (
+              <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-2)' }}>
+                <span style={{ fontSize: 13, color: 'var(--text-2)' }}>{filtered.length} entries</span>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button className="pagination-btn" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>‹</button>
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => i + 1).map(p => (
+                    <button key={p} className={`pagination-btn ${page === p ? 'active' : ''}`} onClick={() => setPage(p)}>{p}</button>
+                  ))}
+                  <button className="pagination-btn" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>›</button>
+                </div>
+              </div>
+            )}
           </div>
 
           {selected && (

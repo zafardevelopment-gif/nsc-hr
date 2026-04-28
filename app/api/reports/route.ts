@@ -59,5 +59,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ data: filtered });
   }
 
+  if (type === 'employees') {
+    const { data } = await db.from('NSC_HR_employees').select('*').order('full_name');
+    const filtered = dept ? (data || []).filter(e => e.department === dept) : (data || []);
+    return NextResponse.json({ data: filtered });
+  }
+
   return NextResponse.json({ data: [] });
 }

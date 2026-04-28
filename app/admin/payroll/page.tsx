@@ -9,6 +9,7 @@ import { useUser } from '@/lib/hooks';
 import { Payroll } from '@/types';
 import { formatCurrency, getMonthOptions, getPayrollMonthLabel } from '@/lib/utils';
 import toast from 'react-hot-toast';
+import * as XLSX from 'xlsx';
 
 export default function PayrollPage() {
   const { user } = useUser();
@@ -23,6 +24,9 @@ export default function PayrollPage() {
   const [selectedPay, setSelectedPay] = useState<Payroll | null>(null);
   const [payForm, setPayForm] = useState({ method: 'Bank Transfer', ref: '', date: new Date().toISOString().split('T')[0], notes: '', bank_last4: '' });
   const [submitting, setSubmitting] = useState(false);
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   const monthOptions = getMonthOptions();
 
@@ -81,6 +85,26 @@ export default function PayrollPage() {
   const total = payroll.reduce((s, p) => s + (p.net_pay || 0), 0);
   const paid = payroll.filter(p => p.status === 'paid').length;
 
+  const filtered = payroll.filter(p => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    const emp = p.employee as { full_name: string; department: string; employee_code: string } | undefined;
+    return emp?.full_name?.toLowerCase().includes(q) || emp?.department?.toLowerCase().includes(q) || emp?.employee_code?.toLowerCase().includes(q);
+  });
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  function exportExcel() {
+    const ws = XLSX.utils.json_to_sheet(payroll.map(p => {
+      const emp = p.employee as { full_name: string; department: string; employee_code: string; emp_type: string } | undefined;
+      return { Code: emp?.employee_code, Name: emp?.full_name, Department: emp?.department, Type: emp?.emp_type, 'Basic Salary': p.basic_salary, Overtime: p.overtime_pay, Bonus: p.bonus, 'Total Deductions': p.total_deductions, 'Net Pay': p.net_pay, Status: p.status };
+    }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Payroll');
+    XLSX.writeFile(wb, `payroll-${month}.xlsx`);
+    toast.success('Excel exported');
+  }
+
   if (!user) return null;
 
   return (
@@ -90,7 +114,7 @@ export default function PayrollPage() {
         user={user}
         actions={
           <div style={{ display: 'flex', gap: 10 }}>
-            <Button variant="ghost">Export PDF</Button>
+            <Button variant="ghost" icon="📊" onClick={exportExcel}>Export Excel</Button>
             <Button icon="⚡" loading={generating} onClick={generateAll}>Auto-Generate All</Button>
           </div>
         }
@@ -113,19 +137,14 @@ export default function PayrollPage() {
 
         {/* Filters */}
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <select className="form-select" style={{ width: 'auto' }} value={month} onChange={e => setMonth(e.target.value)}>
+          <select className="form-select" style={{ width: 'auto' }} value={month} onChange={e => { setMonth(e.target.value); setPage(1); }}>
             {monthOptions.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
-          <select className="form-select" style={{ width: 'auto' }}>
-            <option>All Departments</option>
-          </select>
-          <select className="form-select" style={{ width: 'auto' }}>
-            <option>All Status</option>
-          </select>
+          <input className="form-input" placeholder="Search employee..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} style={{ maxWidth: 220 }} />
         </div>
 
         <div className="card" style={{ overflow: 'hidden' }}>
-          <div className="table-wrap">
+          <div className="table-wrap" style={{ overflowX: 'auto' }}>
             <table className="data-table">
               <thead>
                 <tr><th>Employee</th><th>Base</th><th>OT</th><th>Bonus</th><th>Deductions</th><th>Net Pay</th><th>Status</th><th>Actions</th></tr>
@@ -133,9 +152,9 @@ export default function PayrollPage() {
               <tbody>
                 {loading ? (
                   <tr><td colSpan={8}><div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>Loading...</div></td></tr>
-                ) : payroll.length === 0 ? (
+                ) : paged.length === 0 ? (
                   <tr><td colSpan={8}><div className="empty-state"><div className="empty-icon">💰</div><div>No payroll generated for this month</div><div style={{ fontSize: 13 }}>Click "Auto-Generate All" to create payroll</div></div></td></tr>
-                ) : payroll.map(p => {
+                ) : paged.map(p => {
                   const emp = p.employee as { full_name: string; emp_type: string; department: string } | undefined;
                   return (
                     <tr key={p.id}>
@@ -168,6 +187,18 @@ export default function PayrollPage() {
               </tbody>
             </table>
           </div>
+          {totalPages > 1 && (
+            <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-2)' }}>
+              <span style={{ fontSize: 13, color: 'var(--text-2)' }}>{filtered.length} records</span>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="pagination-btn" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>‹</button>
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => i + 1).map(p => (
+                  <button key={p} className={`pagination-btn ${page === p ? 'active' : ''}`} onClick={() => setPage(p)}>{p}</button>
+                ))}
+                <button className="pagination-btn" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>›</button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Mark Paid Modal */}

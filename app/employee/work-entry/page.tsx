@@ -45,6 +45,7 @@ export default function WorkEntryPage() {
     if (hours <= 0) { toast.error('End time must be after start time'); return; }
 
     setSubmitting(true);
+    const tid = toast.loading('Submitting entry...');
     try {
       const res = await fetch('/api/work-entries', {
         method: 'POST',
@@ -61,13 +62,13 @@ export default function WorkEntryPage() {
       });
       const json = await res.json();
       if (json.error) throw new Error(json.error);
-      toast.success(json.message || 'Work entry submitted!');
+      toast.success(json.message || 'Work entry submitted!', { id: tid });
       setDesc('');
       setProofUrl('');
       setProofName('');
       loadEntries();
     } catch (e: unknown) {
-      toast.error((e as Error).message);
+      toast.error((e as Error).message, { id: tid });
     } finally {
       setSubmitting(false);
     }
@@ -75,6 +76,8 @@ export default function WorkEntryPage() {
 
   const approved = entries.filter(e => e.status === 'approved').reduce((s, e) => s + (e.adjusted_hours || e.total_hours), 0);
   const pending  = entries.filter(e => e.status === 'pending').reduce((s, e) => s + e.total_hours, 0);
+  const [entrySearch, setEntrySearch] = useState('');
+  const filteredEntries = entries.filter(e => !entrySearch || e.task_description?.toLowerCase().includes(entrySearch.toLowerCase()) || e.entry_date?.includes(entrySearch));
 
   if (!user) return null;
 
@@ -150,16 +153,17 @@ export default function WorkEntryPage() {
                 </div>
               </div>
 
+              <input className="form-input" placeholder="Search by date or description..." value={entrySearch} onChange={e => setEntrySearch(e.target.value)} style={{ marginBottom: 10 }} />
               {loading ? (
                 <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-2)' }}>Loading...</div>
-              ) : entries.length === 0 ? (
-                <div className="empty-state" style={{ padding: '24px 0' }}><div className="empty-icon">📝</div><div>No entries this month</div></div>
+              ) : filteredEntries.length === 0 ? (
+                <div className="empty-state" style={{ padding: '24px 0' }}><div className="empty-icon">📝</div><div>No entries found</div></div>
               ) : (
                 <div className="table-wrap">
                   <table className="data-table">
                     <thead><tr><th>Date</th><th>Hours</th><th>Description</th><th>Status</th></tr></thead>
                     <tbody>
-                      {entries.map(e => (
+                      {filteredEntries.map(e => (
                         <tr key={e.id}>
                           <td className="muted">{formatDate(e.entry_date)}</td>
                           <td><strong style={{ color: 'var(--primary)' }}>{e.adjusted_hours || e.total_hours}h</strong></td>

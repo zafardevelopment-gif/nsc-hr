@@ -80,6 +80,7 @@ export default function EmployeesPage() {
 
   async function onSubmit(data: EmpForm) {
     setSubmitting(true);
+    const tid = toast.loading(editEmp ? 'Saving changes...' : 'Creating employee...');
     try {
       const payload = {
         ...data,
@@ -99,13 +100,13 @@ export default function EmployeesPage() {
       const json = await res.json();
       if (json.error) throw new Error(json.error);
 
-      toast.success(editEmp ? 'Employee updated' : 'Employee created');
+      toast.success(editEmp ? 'Employee updated' : 'Employee created', { id: tid });
       setShowAdd(false);
       setEditEmp(null);
       reset();
       load();
     } catch (e: unknown) {
-      toast.error((e as Error).message || 'Failed');
+      toast.error((e as Error).message || 'Failed', { id: tid });
     } finally {
       setSubmitting(false);
     }
@@ -297,11 +298,11 @@ export default function EmployeesPage() {
             <div className="form-row">
               <div className="form-group">
                 <label className="form-label">Mobile</label>
-                <input className="form-input" placeholder="+91 9XXXXXXXXX" {...register('mobile')} />
+                <input className="form-input" placeholder="+966 5XXXXXXXX" {...register('mobile')} />
               </div>
               <div className="form-group">
                 <label className="form-label">WhatsApp</label>
-                <input className="form-input" placeholder="+91 9XXXXXXXXX" {...register('whatsapp')} />
+                <input className="form-input" placeholder="+966 5XXXXXXXX" {...register('whatsapp')} />
               </div>
             </div>
             <div className="form-row">

@@ -10,6 +10,7 @@ import { useUser } from '@/lib/hooks';
 import { LeaveRequest } from '@/types';
 import { formatDate } from '@/lib/utils';
 import toast from 'react-hot-toast';
+import * as XLSX from 'xlsx';
 
 const LEAVE_SUMMARY = [
   { type: 'Casual Leave',    total: 12, used: 3,  color: 'var(--primary)' },
@@ -23,6 +24,9 @@ export default function LeaveApprovalPage() {
   const [tab, setTab] = useState('pending');
   const [loading, setLoading] = useState(true);
   const [remark, setRemark] = useState<Record<string, string>>({});
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -52,11 +56,33 @@ export default function LeaveApprovalPage() {
     }
   }
 
+  const filtered = leaves.filter(l => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    const emp = l.employee as { full_name: string } | undefined;
+    return emp?.full_name?.toLowerCase().includes(q) || l.leave_type?.toLowerCase().includes(q) || l.reason?.toLowerCase().includes(q);
+  });
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  function exportExcel() {
+    const ws = XLSX.utils.json_to_sheet(leaves.map(l => {
+      const emp = l.employee as { full_name: string; employee_code: string } | undefined;
+      return { Code: emp?.employee_code, Name: emp?.full_name, 'Leave Type': l.leave_type, From: l.from_date, To: l.to_date, Days: l.total_days, Reason: l.reason, Status: l.status };
+    }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Leave Requests');
+    XLSX.writeFile(wb, `leave-${tab}.xlsx`);
+    toast.success('Excel exported');
+  }
+
   if (!user) return null;
 
   return (
     <>
-      <AdminTopbar title="Leave Management" user={user} />
+      <AdminTopbar title="Leave Management" user={user}
+        actions={<Button variant="ghost" icon="📊" onClick={exportExcel}>Export Excel</Button>}
+      />
       <div className="page-content">
         {/* Leave balance overview cards */}
         <div className="leave-cards">
@@ -82,10 +108,13 @@ export default function LeaveApprovalPage() {
             { key: 'rejected', label: 'Rejected', count: leaves.filter(l => l.status === 'rejected').length },
           ]}
           active={tab}
-          onChange={setTab}
+          onChange={t => { setTab(t); setPage(1); }}
         />
 
         <div className="card" style={{ overflow: 'hidden' }}>
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-2)' }}>
+            <input className="form-input" placeholder="Search by employee, leave type, reason..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} style={{ maxWidth: 380 }} />
+          </div>
           <div className="table-wrap">
             <table className="data-table">
               <thead>
@@ -94,9 +123,9 @@ export default function LeaveApprovalPage() {
               <tbody>
                 {loading ? (
                   <tr><td colSpan={7}><div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>Loading...</div></td></tr>
-                ) : leaves.length === 0 ? (
+                ) : paged.length === 0 ? (
                   <tr><td colSpan={7}><div className="empty-state"><div className="empty-icon">🗓️</div><div>No {tab} leave requests</div></div></td></tr>
-                ) : leaves.map(l => {
+                ) : paged.map(l => {
                   const emp = l.employee as { full_name: string } | undefined;
                   return (
                     <tr key={l.id}>
@@ -129,6 +158,18 @@ export default function LeaveApprovalPage() {
               </tbody>
             </table>
           </div>
+          {totalPages > 1 && (
+            <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-2)' }}>
+              <span style={{ fontSize: 13, color: 'var(--text-2)' }}>{filtered.length} requests</span>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="pagination-btn" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>‹</button>
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => i + 1).map(p => (
+                  <button key={p} className={`pagination-btn ${page === p ? 'active' : ''}`} onClick={() => setPage(p)}>{p}</button>
+                ))}
+                <button className="pagination-btn" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>›</button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </>

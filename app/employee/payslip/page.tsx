@@ -163,8 +163,8 @@ export default function PayslipPage() {
             </div>
 
             {/* Earnings + Deductions */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: '1px solid var(--border)' }}>
-              <div style={{ padding: '24px 28px', borderRight: '1px solid var(--border)' }}>
+            <div className="payslip-breakdown">
+              <div className="payslip-section">
                 <div style={{ fontWeight: 700, marginBottom: 14, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.5px', fontSize: 12 }}>Earnings</div>
                 {[
                   { label: 'Basic Salary',       value: payroll.basic_salary },
@@ -185,14 +185,14 @@ export default function PayslipPage() {
                 </div>
               </div>
 
-              <div style={{ padding: '24px 28px' }}>
+              <div className="payslip-section payslip-section-right">
                 <div style={{ fontWeight: 700, marginBottom: 14, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.5px', fontSize: 12 }}>Deductions</div>
                 {[
-                  { label: 'PF (Employee)',       value: payroll.pf_employee },
-                  { label: 'Professional Tax',    value: payroll.professional_tax },
+                  { label: 'PF (Employee)',    value: payroll.pf_employee },
+                  { label: 'Professional Tax', value: payroll.professional_tax },
                   ...(payroll.advance_deduction ? [{ label: 'Advance Deduction', value: payroll.advance_deduction }] : []),
-                  ...(payroll.leave_deductions ? [{ label: 'Leave Deductions', value: payroll.leave_deductions }] : []),
-                  ...(payroll.other_deductions ? [{ label: 'Other Deductions', value: payroll.other_deductions }] : []),
+                  ...(payroll.leave_deductions  ? [{ label: 'Leave Deductions',  value: payroll.leave_deductions  }] : []),
+                  ...(payroll.other_deductions  ? [{ label: 'Other Deductions',  value: payroll.other_deductions  }] : []),
                 ].map(d => (
                   <div key={d.label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
                     <span style={{ color: 'var(--text-2)', fontSize: 14 }}>{d.label}</span>
@@ -207,10 +207,10 @@ export default function PayslipPage() {
             </div>
 
             {/* Net Pay */}
-            <div style={{ background: 'var(--primary-light)', padding: '20px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ background: 'var(--primary-light)', padding: '20px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', flexWrap: 'wrap', gap: 12 }}>
               <div>
                 <div style={{ fontSize: 13, color: 'var(--primary)', fontWeight: 600, marginBottom: 2 }}>Net Pay (Take Home)</div>
-                <div style={{ fontSize: 36, fontWeight: 800, color: 'var(--primary)' }}>{formatCurrency(payroll.net_pay)}</div>
+                <div style={{ fontSize: 32, fontWeight: 800, color: 'var(--primary)' }}>{formatCurrency(payroll.net_pay)}</div>
               </div>
               <Badge status={payroll.status}>
                 {payroll.status === 'paid' ? '✓ Salary Paid' : payroll.status === 'generated' ? '⏳ Pending Payment' : '📋 Draft'}
@@ -219,7 +219,7 @@ export default function PayslipPage() {
 
             {/* Payment details */}
             {payroll.status === 'paid' && (
-              <div style={{ padding: '20px 28px', display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 20, background: 'var(--surface-2)' }}>
+              <div className="payslip-payment-grid">
                 {[
                   { l: 'Payment Date', v: payroll.payment_date ? new Date(payroll.payment_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'long', year: 'numeric' }) : '—' },
                   { l: 'Method',       v: payroll.payment_method || '—' },

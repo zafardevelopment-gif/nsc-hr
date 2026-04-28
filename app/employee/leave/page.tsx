@@ -54,6 +54,7 @@ export default function LeaveApplyPage() {
       return;
     }
     setSubmitting(true);
+    const tid = toast.loading('Submitting leave request...');
     try {
       const res = await fetch('/api/leaves', {
         method: 'POST',
@@ -62,7 +63,7 @@ export default function LeaveApplyPage() {
       });
       const json = await res.json();
       if (json.error) throw new Error(json.error);
-      toast.success('Leave request submitted!');
+      toast.success('Leave request submitted!', { id: tid });
       setForm(f => ({ ...f, from: '', to: '', reason: '' }));
 
       const [balRes, histRes] = await Promise.all([
@@ -73,7 +74,7 @@ export default function LeaveApplyPage() {
       setBalances(balData.data || []);
       setHistory(histData.data || []);
     } catch (e: unknown) {
-      toast.error((e as Error).message);
+      toast.error((e as Error).message, { id: tid });
     } finally {
       setSubmitting(false);
     }

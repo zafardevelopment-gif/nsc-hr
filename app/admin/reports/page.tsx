@@ -16,7 +16,9 @@ const TABS = [
   { key: 'payroll',    label: 'Payroll' },
   { key: 'attendance', label: 'Attendance' },
   { key: 'leave',      label: 'Leave' },
+  { key: 'employees',  label: 'Employees' },
 ];
+const PAGE_SIZE = 15;
 
 const chartData = [
   { name: 'Oct', value: 1240000 }, { name: 'Nov', value: 1380000 },
@@ -34,11 +36,14 @@ export default function ReportsPage() {
   });
   const [data, setData] = useState<Record<string, unknown>[]>([]);
   const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
   const monthOptions = getMonthOptions();
 
   useEffect(() => {
     async function load() {
       setLoading(true);
+      setPage(1);
       try {
         const res = await fetch(`/api/reports?type=${tab}&month=${month}`);
         const json = await res.json();
@@ -49,14 +54,24 @@ export default function ReportsPage() {
     load();
   }, [tab, month]);
 
+  const filtered = data.filter(row => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    const emp = row.employee as Record<string, unknown> | undefined;
+    return String(emp?.full_name || '').toLowerCase().includes(q)
+      || String(emp?.employee_code || '').toLowerCase().includes(q)
+      || String(emp?.department || row.department || '').toLowerCase().includes(q);
+  });
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
   function exportExcel() {
     const ws = XLSX.utils.json_to_sheet(data.map(row => {
       const emp = row.employee as Record<string, unknown> | undefined;
-      return tab === 'payroll'
-        ? { 'Code': emp?.employee_code, 'Name': emp?.full_name, 'Dept': emp?.department, 'Basic': row.basic_salary, 'Gross': row.gross_earnings, 'Deductions': row.total_deductions, 'Net Pay': row.net_pay, 'Status': row.status }
-        : tab === 'attendance'
-        ? { 'Code': emp?.employee_code, 'Name': emp?.full_name, 'Date': row.entry_date, 'Hours': row.total_hours, 'Status': row.status }
-        : { 'Code': emp?.employee_code, 'Name': emp?.full_name, 'Leave Type': row.leave_type, 'From': row.from_date, 'To': row.to_date, 'Days': row.total_days, 'Status': row.status };
+      if (tab === 'payroll')    return { Code: emp?.employee_code, Name: emp?.full_name, Dept: emp?.department, Basic: row.basic_salary, Gross: row.gross_earnings, Deductions: row.total_deductions, 'Net Pay': row.net_pay, Status: row.status };
+      if (tab === 'attendance') return { Code: emp?.employee_code, Name: emp?.full_name, Date: row.entry_date, Hours: row.total_hours, Description: row.task_description, Status: row.status };
+      if (tab === 'leave')      return { Code: emp?.employee_code, Name: emp?.full_name, 'Leave Type': row.leave_type, From: row.from_date, To: row.to_date, Days: row.total_days, Reason: row.reason, Status: row.status };
+      return { Code: row.employee_code, Name: row.full_name, Department: row.department, Designation: row.designation, Type: row.emp_type, 'Salary Type': row.salary_type, 'Monthly Salary': row.monthly_salary, 'Hourly Rate': row.hourly_rate, Joined: row.joining_date, Status: row.active ? 'Active' : 'Inactive' };
     }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, tab);
@@ -80,12 +95,10 @@ export default function ReportsPage() {
           <select className="form-select" style={{ width: 'auto' }} value={month} onChange={e => setMonth(e.target.value)}>
             {monthOptions.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
-          <select className="form-select" style={{ width: 'auto' }}>
-            <option>All Departments</option>
-          </select>
+          <input className="form-input" placeholder="Search employee..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} style={{ maxWidth: 220 }} />
         </div>
 
-        <Tabs tabs={TABS} active={tab} onChange={setTab} />
+        <Tabs tabs={TABS} active={tab} onChange={t => { setTab(t); setSearch(''); setPage(1); }} />
 
         {/* Charts */}
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
@@ -126,7 +139,8 @@ export default function ReportsPage() {
         {/* Data Table */}
         <div className="card" style={{ overflow: 'hidden' }}>
           <div className="card-header">
-            <div className="card-title">{tab === 'payroll' ? 'Payroll Report' : tab === 'attendance' ? 'Attendance Report' : 'Leave Report'}</div>
+            <div className="card-title">{tab === 'payroll' ? 'Payroll Report' : tab === 'attendance' ? 'Attendance Report' : tab === 'leave' ? 'Leave Report' : 'Employee Directory'}</div>
+            <span style={{ fontSize: 13, color: 'var(--text-2)' }}>{filtered.length} records</span>
           </div>
           <div className="table-wrap">
             {loading ? (
@@ -137,19 +151,11 @@ export default function ReportsPage() {
                   <>
                     <thead><tr><th>Employee</th><th>Basic</th><th>Gross</th><th>Deductions</th><th>Net Pay</th><th>Status</th></tr></thead>
                     <tbody>
-                      {data.map((r, i) => {
+                      {paged.map((r, i) => {
                         const emp = r.employee as { full_name: string; department: string } | undefined;
                         return (
                           <tr key={i}>
-                            <td>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <Avatar name={emp?.full_name || ''} size="sm" />
-                                <div>
-                                  <div style={{ fontWeight: 600 }}>{emp?.full_name}</div>
-                                  <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{emp?.department}</div>
-                                </div>
-                              </div>
-                            </td>
+                            <td><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Avatar name={emp?.full_name || ''} size="sm" /><div><div style={{ fontWeight: 600 }}>{emp?.full_name}</div><div style={{ fontSize: 12, color: 'var(--text-2)' }}>{emp?.department}</div></div></div></td>
                             <td>{formatCurrency(Number(r.basic_salary) || 0)}</td>
                             <td>{formatCurrency(Number(r.gross_earnings) || 0)}</td>
                             <td><span style={{ color: 'var(--danger)' }}>-{formatCurrency(Number(r.total_deductions) || 0)}</span></td>
@@ -158,7 +164,7 @@ export default function ReportsPage() {
                           </tr>
                         );
                       })}
-                      {data.length === 0 && <tr><td colSpan={6}><div className="empty-state"><div className="empty-icon">📊</div><div>No data for this month</div></div></td></tr>}
+                      {paged.length === 0 && <tr><td colSpan={6}><div className="empty-state"><div className="empty-icon">📊</div><div>No data</div></div></td></tr>}
                     </tbody>
                   </>
                 )}
@@ -166,7 +172,7 @@ export default function ReportsPage() {
                   <>
                     <thead><tr><th>Employee</th><th>Date</th><th>Hours</th><th>Description</th><th>Status</th></tr></thead>
                     <tbody>
-                      {data.map((r, i) => {
+                      {paged.map((r, i) => {
                         const emp = r.employee as { full_name: string } | undefined;
                         return (
                           <tr key={i}>
@@ -178,15 +184,15 @@ export default function ReportsPage() {
                           </tr>
                         );
                       })}
-                      {data.length === 0 && <tr><td colSpan={5}><div className="empty-state"><div className="empty-icon">📊</div><div>No data for this month</div></div></td></tr>}
+                      {paged.length === 0 && <tr><td colSpan={5}><div className="empty-state"><div className="empty-icon">📊</div><div>No data</div></div></td></tr>}
                     </tbody>
                   </>
                 )}
                 {tab === 'leave' && (
                   <>
-                    <thead><tr><th>Employee</th><th>Leave Type</th><th>From</th><th>To</th><th>Days</th><th>Status</th></tr></thead>
+                    <thead><tr><th>Employee</th><th>Leave Type</th><th>From</th><th>To</th><th>Days</th><th>Reason</th><th>Status</th></tr></thead>
                     <tbody>
-                      {data.map((r, i) => {
+                      {paged.map((r, i) => {
                         const emp = r.employee as { full_name: string } | undefined;
                         return (
                           <tr key={i}>
@@ -195,17 +201,50 @@ export default function ReportsPage() {
                             <td className="muted">{formatDate(String(r.from_date))}</td>
                             <td className="muted">{formatDate(String(r.to_date))}</td>
                             <td><strong>{Number(r.total_days)}d</strong></td>
+                            <td className="muted" style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(r.reason || '—')}</td>
                             <td><Badge status={String(r.status)} /></td>
                           </tr>
                         );
                       })}
-                      {data.length === 0 && <tr><td colSpan={6}><div className="empty-state"><div className="empty-icon">📊</div><div>No data for this month</div></div></td></tr>}
+                      {paged.length === 0 && <tr><td colSpan={7}><div className="empty-state"><div className="empty-icon">📊</div><div>No data</div></div></td></tr>}
+                    </tbody>
+                  </>
+                )}
+                {tab === 'employees' && (
+                  <>
+                    <thead><tr><th>Code</th><th>Name</th><th>Department</th><th>Designation</th><th>Type</th><th>Salary</th><th>Joined</th><th>Status</th></tr></thead>
+                    <tbody>
+                      {paged.map((r, i) => (
+                        <tr key={i}>
+                          <td className="muted" style={{ fontFamily: 'monospace', fontWeight: 600 }}>{String(r.employee_code || '—')}</td>
+                          <td><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Avatar name={String(r.full_name || '')} size="sm" /><span style={{ fontWeight: 600 }}>{String(r.full_name)}</span></div></td>
+                          <td className="muted">{String(r.department || '—')}</td>
+                          <td className="muted">{String(r.designation || '—')}</td>
+                          <td><Badge status={String(r.emp_type)}>{String(r.emp_type)}</Badge></td>
+                          <td><strong>{r.salary_type === 'hourly' ? `${formatCurrency(Number(r.hourly_rate) || 0)}/hr` : formatCurrency(Number(r.monthly_salary) || 0)}</strong></td>
+                          <td className="muted">{formatDate(String(r.joining_date))}</td>
+                          <td><Badge status={r.active ? 'active' : 'inactive'} dot /></td>
+                        </tr>
+                      ))}
+                      {paged.length === 0 && <tr><td colSpan={8}><div className="empty-state"><div className="empty-icon">👥</div><div>No employees found</div></div></td></tr>}
                     </tbody>
                   </>
                 )}
               </table>
             )}
           </div>
+          {totalPages > 1 && (
+            <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-2)' }}>
+              <span style={{ fontSize: 13, color: 'var(--text-2)' }}>Page {page} of {totalPages}</span>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="pagination-btn" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>‹</button>
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => i + 1).map(p => (
+                  <button key={p} className={`pagination-btn ${page === p ? 'active' : ''}`} onClick={() => setPage(p)}>{p}</button>
+                ))}
+                <button className="pagination-btn" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>›</button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </>
