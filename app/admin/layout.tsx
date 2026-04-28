@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth';
-import { AdminSidebar } from '@/components/admin/AdminSidebar';
+import { AdminSidebar, AdminMobileNav } from '@/components/admin/AdminSidebar';
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
@@ -12,6 +12,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     <div className="app-shell">
       <AdminSidebar user={session} />
       <div className="main-area">{children}</div>
+      <AdminMobileNav user={session} />
     </div>
   );
 }

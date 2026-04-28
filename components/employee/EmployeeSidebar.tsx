@@ -69,6 +69,7 @@ export function EmployeeMobileNav({ user: _user }: { user: User }) {
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' });
+    toast.success('Logged out');
     router.push('/login');
   }
 

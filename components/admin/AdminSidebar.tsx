@@ -17,8 +17,50 @@ const ADMIN_ITEMS = [
   { href: '/admin/settings',      icon: '⚙️', label: 'Settings' },
 ];
 
+const MOBILE_NAV_ITEMS = [
+  { href: '/admin/dashboard',     icon: '📊', label: 'Dashboard' },
+  { href: '/admin/employees',     icon: '👥', label: 'Employees' },
+  { href: '/admin/work-approval', icon: '⏱️', label: 'Work' },
+  { href: '/admin/leave',         icon: '🗓️', label: 'Leave' },
+  { href: '/admin/payroll',       icon: '💰', label: 'Payroll' },
+  { href: '__logout__',           icon: '⎋',  label: 'Logout' },
+];
+
 interface AdminSidebarProps {
   user: User;
+}
+
+export function AdminMobileNav({ user }: AdminSidebarProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+
+  async function handleLogout() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    toast.success('Logged out');
+    router.push('/login');
+  }
+
+  return (
+    <div className="mobile-nav">
+      {MOBILE_NAV_ITEMS.map(item => (
+        <div
+          key={item.href}
+          className={`mobile-nav-item ${pathname === item.href ? 'active' : ''}`}
+          style={{
+            flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
+            gap: 4, padding: 8, cursor: 'pointer', fontSize: 10, fontWeight: 600,
+            color: item.href === '__logout__' ? 'var(--danger)'
+              : pathname === item.href ? 'var(--primary)'
+              : 'var(--text-3)',
+          }}
+          onClick={() => item.href === '__logout__' ? handleLogout() : router.push(item.href)}
+        >
+          <span style={{ fontSize: 20 }}>{item.icon}</span>
+          {item.label}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function AdminSidebar({ user }: AdminSidebarProps) {
