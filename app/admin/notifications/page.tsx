@@ -183,8 +183,6 @@ export default function NotificationsPage() {
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {([
                   { value: 'all',        label: 'All Employees' },
-                  { value: 'employee',   label: 'Employees Only' },
-                  { value: 'admin',      label: 'Admins Only' },
                   { value: 'department', label: 'By Department' },
                   { value: 'specific',   label: 'Specific Employee' },
                 ] as { value: RecipientMode; label: string }[]).map(opt => (
