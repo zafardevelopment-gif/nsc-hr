@@ -7,6 +7,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { Modal } from '@/components/ui/Modal';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { Progress } from '@/components/ui/Progress';
+import { Pagination } from '@/components/ui/Pagination';
 import { useUser } from '@/lib/hooks';
 import { Employee } from '@/types';
 import { formatDate, formatCurrency } from '@/lib/utils';
@@ -218,20 +219,7 @@ export default function EmployeesPage() {
             </table>
           </div>
 
-          {/* Pagination */}
-          <div style={{ padding: '12px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-2)' }}>
-            <span style={{ fontSize: 13, color: 'var(--text-2)' }}>
-              Showing {Math.min((page - 1) * perPage + 1, total)}–{Math.min(page * perPage, total)} of {total} employees
-            </span>
-            {totalPages > 1 && (
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button className="pagination-btn" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>‹</button>
-                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => i + 1).map(p => (
-                  <button key={p} className={`pagination-btn ${page === p ? 'active' : ''}`} onClick={() => setPage(p)}>{p}</button>
-                ))}
-                <button className="pagination-btn" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>›</button>
-              </div>
-            )}
+          <Pagination page={page} totalPages={totalPages} total={total} pageSize={perPage} onChange={setPage} label="employees" />
           </div>
         </div>
 

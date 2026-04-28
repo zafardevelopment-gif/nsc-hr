@@ -7,6 +7,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { Modal } from '@/components/ui/Modal';
 import { useUser } from '@/lib/hooks';
 import { Payroll } from '@/types';
+import { Pagination } from '@/components/ui/Pagination';
 import { formatCurrency, getMonthOptions, getPayrollMonthLabel } from '@/lib/utils';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
@@ -229,18 +230,7 @@ export default function PayrollPage() {
               </tbody>
             </table>
           </div>
-          {totalPages > 1 && (
-            <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-2)' }}>
-              <span style={{ fontSize: 13, color: 'var(--text-2)' }}>{filtered.length} records</span>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button className="pagination-btn" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>‹</button>
-                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => i + 1).map(p => (
-                  <button key={p} className={`pagination-btn ${page === p ? 'active' : ''}`} onClick={() => setPage(p)}>{p}</button>
-                ))}
-                <button className="pagination-btn" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>›</button>
-              </div>
-            </div>
-          )}
+          <Pagination page={page} totalPages={totalPages} total={filtered.length} pageSize={PAGE_SIZE} onChange={setPage} label="records" />
         </div>
 
         {/* Adjust Payroll Modal */}

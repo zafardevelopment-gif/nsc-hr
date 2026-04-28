@@ -9,6 +9,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { useUser } from '@/lib/hooks';
 import { formatCurrency, getMonthOptions, formatDate } from '@/lib/utils';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { Pagination } from '@/components/ui/Pagination';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 
@@ -306,18 +307,7 @@ export default function ReportsPage() {
             </>
           )}
 
-          {totalPages > 1 && (
-            <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-2)' }}>
-              <span style={{ fontSize: 13, color: 'var(--text-2)' }}>Page {page} of {totalPages}</span>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button className="pagination-btn" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>‹</button>
-                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => i + 1).map(p => (
-                  <button key={p} className={`pagination-btn ${page === p ? 'active' : ''}`} onClick={() => setPage(p)}>{p}</button>
-                ))}
-                <button className="pagination-btn" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>›</button>
-              </div>
-            </div>
-          )}
+          <Pagination page={page} totalPages={totalPages} total={filtered.length} pageSize={PAGE_SIZE} onChange={setPage} label="records" />
         </div>
       </div>
     </>

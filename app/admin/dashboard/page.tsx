@@ -18,42 +18,39 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState({ total: 0, permanent: 0, partTime: 0, pending: 0, pendingLeaves: 0, salaryTotal: 0, paid: 0 });
   const [pendingWork, setPendingWork] = useState<WorkEntry[]>([]);
   const [pendingLeaves, setPendingLeaves] = useState<LeaveRequest[]>([]);
+  const [chartData, setChartData] = useState<{ name: string; value: number }[]>([]);
+  const [attendanceData, setAttendanceData] = useState([
+    { name: 'Present', value: 0, color: '#3B6FE8' },
+    { name: 'Leave',   value: 0, color: '#10B981' },
+    { name: 'Absent',  value: 0, color: '#EF4444' },
+  ]);
   const [loading, setLoading] = useState(true);
-
-  const chartData = [
-    { name: 'Oct', value: 1240000 }, { name: 'Nov', value: 1380000 },
-    { name: 'Dec', value: 1290000 }, { name: 'Jan', value: 1450000 },
-    { name: 'Feb', value: 1380000 }, { name: 'Mar', value: 1520000 },
-    { name: 'Apr', value: 1620000 },
-  ];
-
-  const attendanceData = [
-    { name: 'Present', value: 78, color: '#3B6FE8' },
-    { name: 'Leave',   value: 12, color: '#10B981' },
-    { name: 'Absent',  value: 10, color: '#EF4444' },
-  ];
 
   useEffect(() => {
     async function load() {
       try {
-        const [empRes, workRes, leaveRes, payRes] = await Promise.all([
-          fetch('/api/employees'),
+        const curMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+        const [empRes, workRes, leaveRes, payRes, chartRes] = await Promise.all([
+          fetch('/api/employees?limit=500'),
           fetch('/api/work-entries?status=pending&limit=5'),
-          fetch('/api/leaves?status=pending'),
-          fetch(`/api/payroll?month=${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`),
+          fetch('/api/leaves?status=pending&limit=1'),
+          fetch(`/api/payroll?month=${curMonth}`),
+          fetch('/api/reports?type=chart'),
         ]);
 
-        const [empData, workData, leaveData, payData] = await Promise.all([
-          empRes.json(), workRes.json(), leaveRes.json(), payRes.json(),
+        const [empData, workData, leaveData, payData, chartJson] = await Promise.all([
+          empRes.json(), workRes.json(), leaveRes.json(), payRes.json(), chartRes.json(),
         ]);
 
         const employees = empData.data || [];
         const payroll = payData.data || [];
+        const perm = employees.filter((e: { emp_type: string }) => e.emp_type === 'permanent').length;
+        const pt   = employees.filter((e: { emp_type: string }) => e.emp_type === 'part-time').length;
 
         setStats({
-          total: empData.count || 0,
-          permanent: employees.filter((e: { emp_type: string }) => e.emp_type === 'permanent').length,
-          partTime: employees.filter((e: { emp_type: string }) => e.emp_type === 'part-time').length,
+          total: empData.count || employees.length,
+          permanent: perm,
+          partTime: pt,
           pending: workData.count || 0,
           pendingLeaves: leaveData.count || 0,
           salaryTotal: payroll.reduce((s: number, p: { net_pay: number }) => s + (p.net_pay || 0), 0),
@@ -62,6 +59,28 @@ export default function AdminDashboard() {
 
         setPendingWork(workData.data || []);
         setPendingLeaves(leaveData.data?.slice(0, 3) || []);
+        setChartData(chartJson.data || []);
+
+        // Attendance: approved work entries this month vs total working days
+        const [wApprRes, wAllRes, lApprRes] = await Promise.all([
+          fetch(`/api/work-entries?status=approved&limit=500`).then(r => r.json()),
+          fetch(`/api/work-entries?limit=1`).then(r => r.json()),
+          fetch(`/api/leaves?status=approved&limit=500`).then(r => r.json()),
+        ]);
+        const totalEntries = (wApprRes.count || 0) + ((wAllRes.count || 0) - (wApprRes.count || 0));
+        const approved = wApprRes.count || 0;
+        const onLeave  = lApprRes.count || 0;
+        const total3   = approved + onLeave + Math.max(0, totalEntries - approved);
+        if (total3 > 0) {
+          const presP = Math.round((approved / total3) * 100);
+          const leaveP = Math.round((onLeave / total3) * 100);
+          const absP = Math.max(0, 100 - presP - leaveP);
+          setAttendanceData([
+            { name: 'Present', value: presP, color: '#3B6FE8' },
+            { name: 'Leave',   value: leaveP, color: '#10B981' },
+            { name: 'Absent',  value: absP,  color: '#EF4444' },
+          ]);
+        }
       } catch {}
       finally { setLoading(false); }
     }
@@ -122,7 +141,7 @@ export default function AdminDashboard() {
                 <Pie data={attendanceData} cx={65} cy={65} innerRadius={42} outerRadius={60} dataKey="value" stroke="none">
                   {attendanceData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                 </Pie>
-                <text x={70} y={60} textAnchor="middle" style={{ fontSize: 18, fontWeight: 800, fill: 'var(--text)' }}>78%</text>
+                <text x={70} y={60} textAnchor="middle" style={{ fontSize: 18, fontWeight: 800, fill: 'var(--text)' }}>{attendanceData[0].value}%</text>
                 <text x={70} y={78} textAnchor="middle" style={{ fontSize: 11, fill: 'var(--text-2)' }}>Present</text>
               </PieChart>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}>
