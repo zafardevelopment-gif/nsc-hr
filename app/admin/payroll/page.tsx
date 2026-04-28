@@ -21,8 +21,10 @@ export default function PayrollPage() {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
   const [showPayModal, setShowPayModal] = useState(false);
+  const [showAdjModal, setShowAdjModal] = useState(false);
   const [selectedPay, setSelectedPay] = useState<Payroll | null>(null);
   const [payForm, setPayForm] = useState({ method: 'Bank Transfer', ref: '', date: new Date().toISOString().split('T')[0], notes: '', bank_last4: '' });
+  const [adjForm, setAdjForm] = useState({ overtime_pay: '', bonus: '', other_allowance: '', advance_deduction: '', other_deductions: '', payment_notes: '' });
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -80,6 +82,33 @@ export default function PayrollPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function saveAdjustment() {
+    if (!selectedPay) return;
+    setSubmitting(true);
+    try {
+      const body: Record<string, number | string> = {};
+      if (adjForm.overtime_pay !== '')    body.overtime_pay = parseFloat(adjForm.overtime_pay) || 0;
+      if (adjForm.bonus !== '')           body.bonus = parseFloat(adjForm.bonus) || 0;
+      if (adjForm.other_allowance !== '') body.other_allowance = parseFloat(adjForm.other_allowance) || 0;
+      if (adjForm.advance_deduction !== '') body.advance_deduction = parseFloat(adjForm.advance_deduction) || 0;
+      if (adjForm.other_deductions !== '') body.other_deductions = parseFloat(adjForm.other_deductions) || 0;
+      if (adjForm.payment_notes !== '')   body.payment_notes = adjForm.payment_notes;
+
+      const res = await fetch(`/api/payroll/${selectedPay.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      toast.success('Payroll adjusted successfully');
+      setShowAdjModal(false);
+      load();
+    } catch (e: unknown) {
+      toast.error((e as Error).message);
+    } finally { setSubmitting(false); }
   }
 
   const total = payroll.reduce((s, p) => s + (p.net_pay || 0), 0);
@@ -175,7 +204,20 @@ export default function PayrollPage() {
                       <td><Badge status={p.status} /></td>
                       <td>
                         <div style={{ display: 'flex', gap: 6 }}>
-                          <Button variant="ghost" size="xs">Payslip</Button>
+                          {p.status !== 'paid' && (
+                            <Button variant="outline" size="xs" onClick={() => {
+                              setSelectedPay(p);
+                              setAdjForm({
+                                overtime_pay: p.overtime_pay ? String(p.overtime_pay) : '',
+                                bonus: p.bonus ? String(p.bonus) : '',
+                                other_allowance: p.other_allowance ? String(p.other_allowance) : '',
+                                advance_deduction: p.advance_deduction ? String(p.advance_deduction) : '',
+                                other_deductions: p.other_deductions ? String(p.other_deductions) : '',
+                                payment_notes: p.payment_notes || '',
+                              });
+                              setShowAdjModal(true);
+                            }}>Adjust</Button>
+                          )}
                           {p.status !== 'paid' && (
                             <Button variant="success" size="xs" onClick={() => { setSelectedPay(p); setShowPayModal(true); }}>Mark Paid</Button>
                           )}
@@ -200,6 +242,83 @@ export default function PayrollPage() {
             </div>
           )}
         </div>
+
+        {/* Adjust Payroll Modal */}
+        <Modal open={showAdjModal} onClose={() => setShowAdjModal(false)} title="Adjust Payroll"
+          maxWidth={520}
+          footer={<>
+            <Button variant="ghost" onClick={() => setShowAdjModal(false)}>Cancel</Button>
+            <Button loading={submitting} onClick={saveAdjustment}>Save Adjustments</Button>
+          </>}
+        >
+          {selectedPay && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div className="alert alert-info">
+                Adjusting payroll for <strong>{(selectedPay.employee as { full_name: string })?.full_name}</strong> — {selectedPay.payroll_month}
+              </div>
+
+              {/* Base info */}
+              <div style={{ background: 'var(--bg)', borderRadius: 8, padding: '10px 14px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                <div><div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>BASIC</div><div style={{ fontWeight: 700 }}>{formatCurrency(selectedPay.basic_salary || 0)}</div></div>
+                <div><div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>CURRENT NET</div><div style={{ fontWeight: 700, color: 'var(--primary)' }}>{formatCurrency(selectedPay.net_pay || 0)}</div></div>
+                <div><div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>STATUS</div><div style={{ fontWeight: 700, textTransform: 'capitalize' }}>{selectedPay.status}</div></div>
+              </div>
+
+              {/* Additions */}
+              <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--success)', marginBottom: -6 }}>+ Additions</div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Overtime Pay</label>
+                  <input className="form-input" type="number" min="0" placeholder="0" value={adjForm.overtime_pay} onChange={e => setAdjForm(f => ({ ...f, overtime_pay: e.target.value }))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Bonus / Incentive</label>
+                  <input className="form-input" type="number" min="0" placeholder="0" value={adjForm.bonus} onChange={e => setAdjForm(f => ({ ...f, bonus: e.target.value }))} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Other Allowance</label>
+                <input className="form-input" type="number" min="0" placeholder="0" value={adjForm.other_allowance} onChange={e => setAdjForm(f => ({ ...f, other_allowance: e.target.value }))} />
+              </div>
+
+              {/* Deductions */}
+              <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--danger)', marginBottom: -6 }}>− Deductions</div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Advance Deduction</label>
+                  <input className="form-input" type="number" min="0" placeholder="0" value={adjForm.advance_deduction} onChange={e => setAdjForm(f => ({ ...f, advance_deduction: e.target.value }))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Other Deductions</label>
+                  <input className="form-input" type="number" min="0" placeholder="0" value={adjForm.other_deductions} onChange={e => setAdjForm(f => ({ ...f, other_deductions: e.target.value }))} />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Remarks <span style={{ fontWeight: 400, color: 'var(--text-2)', fontSize: 12 }}>(optional)</span></label>
+                <textarea className="form-textarea" rows={2} placeholder="e.g. Eid bonus, advance recovery..." value={adjForm.payment_notes} onChange={e => setAdjForm(f => ({ ...f, payment_notes: e.target.value }))} />
+              </div>
+
+              {/* Live preview */}
+              {(() => {
+                const ot = parseFloat(adjForm.overtime_pay) || selectedPay.overtime_pay || 0;
+                const bonus = parseFloat(adjForm.bonus) || selectedPay.bonus || 0;
+                const oa = parseFloat(adjForm.other_allowance) || selectedPay.other_allowance || 0;
+                const adv = parseFloat(adjForm.advance_deduction) || selectedPay.advance_deduction || 0;
+                const od = parseFloat(adjForm.other_deductions) || selectedPay.other_deductions || 0;
+                const gross = (selectedPay.basic_salary || 0) + (selectedPay.hra || 0) + (selectedPay.conveyance || 0) + ot + bonus + oa;
+                const ded = (selectedPay.pf_employee || 0) + (selectedPay.professional_tax || 0) + adv + od;
+                const net = gross - ded;
+                return (
+                  <div style={{ background: 'var(--primary-light)', border: '1.5px solid var(--primary)', borderRadius: 8, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: 'var(--primary)', fontWeight: 600 }}>Estimated Net Pay</span>
+                    <strong style={{ fontSize: 20, color: 'var(--primary)' }}>{formatCurrency(net)}</strong>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+        </Modal>
 
         {/* Mark Paid Modal */}
         <Modal open={showPayModal} onClose={() => setShowPayModal(false)} title="Confirm Payment"

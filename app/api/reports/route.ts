@@ -23,12 +23,28 @@ export async function GET(req: NextRequest) {
   }
 
   if (type === 'payroll') {
-    let query = db.from('NSC_HR_payroll').select('*');
+    let query = db.from('NSC_HR_payroll')
+      .select('*, employee:NSC_HR_employees(id,employee_code,full_name,department,emp_type)');
     if (month) query = query.eq('payroll_month', month);
     const { data } = await query.order('created_at', { ascending: false });
-    const enriched = await enrichWithEmployee((data || []) as Record<string, unknown>[]);
-    const filtered = dept ? enriched.filter(r => r.employee && (r.employee as Record<string,unknown>).department === dept) : enriched;
+    const rows = (data || []) as Record<string, unknown>[];
+    const filtered = dept ? rows.filter(r => r.employee && (r.employee as Record<string,unknown>).department === dept) : rows;
     return NextResponse.json({ data: filtered });
+  }
+
+  if (type === 'chart') {
+    // Last 7 months payroll totals for bar chart
+    const months: { name: string; value: number }[] = [];
+    const now = new Date();
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleString('en', { month: 'short' });
+      const { data } = await db.from('NSC_HR_payroll').select('net_pay').eq('payroll_month', key);
+      const total = (data || []).reduce((s: number, r: { net_pay: number }) => s + (r.net_pay || 0), 0);
+      months.push({ name: label, value: total });
+    }
+    return NextResponse.json({ data: months });
   }
 
   if (type === 'attendance') {

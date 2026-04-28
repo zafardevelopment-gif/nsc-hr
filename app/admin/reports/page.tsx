@@ -20,13 +20,6 @@ const TABS = [
 ];
 const PAGE_SIZE = 15;
 
-const chartData = [
-  { name: 'Oct', value: 1240000 }, { name: 'Nov', value: 1380000 },
-  { name: 'Dec', value: 1290000 }, { name: 'Jan', value: 1450000 },
-  { name: 'Feb', value: 1380000 }, { name: 'Mar', value: 1520000 },
-  { name: 'Apr', value: 1620000 },
-];
-
 export default function ReportsPage() {
   const { user } = useUser();
   const [tab, setTab] = useState('payroll');
@@ -38,7 +31,26 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [chartData, setChartData] = useState<{ name: string; value: number }[]>([]);
+  const [empSplit, setEmpSplit] = useState({ permanent: 0, partTime: 0 });
   const monthOptions = getMonthOptions();
+
+  // Load chart + emp split once on mount
+  useEffect(() => {
+    fetch('/api/reports?type=chart')
+      .then(r => r.json())
+      .then(j => setChartData(j.data || []))
+      .catch(() => {});
+    fetch('/api/employees?limit=500')
+      .then(r => r.json())
+      .then(j => {
+        const emps = j.data || [];
+        const perm = emps.filter((e: { emp_type: string }) => e.emp_type === 'permanent').length;
+        const pt = emps.filter((e: { emp_type: string }) => e.emp_type === 'part-time').length;
+        setEmpSplit({ permanent: perm, partTime: pt });
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -110,24 +122,38 @@ export default function ReportsPage() {
             </ResponsiveContainer>
           </Card>
           <Card title="Employee Split">
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '8px 0' }}>
-              <PieChart width={140} height={140}>
-                <Pie data={[{ name: 'Permanent', value: 70 }, { name: 'Part-Time', value: 30 }]} cx={65} cy={65} innerRadius={42} outerRadius={60} dataKey="value" stroke="none">
-                  <Cell fill="#3B6FE8" /><Cell fill="#F59E0B" />
-                </Pie>
-                <text x={70} y={60} textAnchor="middle" style={{ fontSize: 18, fontWeight: 800, fill: 'var(--text)' }}>70%</text>
-                <text x={70} y={78} textAnchor="middle" style={{ fontSize: 11, fill: 'var(--text-2)' }}>Permanent</text>
-              </PieChart>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
-                {[{ label: 'Permanent', color: '#3B6FE8', val: '70%' }, { label: 'Part-Time', color: '#F59E0B', val: '30%' }].map(s => (
-                  <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-                    <div style={{ width: 10, height: 10, borderRadius: '50%', background: s.color }} />
-                    <span style={{ color: 'var(--text-2)', flex: 1 }}>{s.label}</span>
-                    <span style={{ fontWeight: 700 }}>{s.val}</span>
+            {(() => {
+              const total = empSplit.permanent + empSplit.partTime;
+              const permPct = total > 0 ? Math.round((empSplit.permanent / total) * 100) : 0;
+              const ptPct = total > 0 ? 100 - permPct : 0;
+              const pieData = total > 0
+                ? [{ name: 'Permanent', value: empSplit.permanent }, { name: 'Part-Time', value: empSplit.partTime }]
+                : [{ name: 'No Data', value: 1 }];
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '8px 0' }}>
+                  <PieChart width={140} height={140}>
+                    <Pie data={pieData} cx={65} cy={65} innerRadius={42} outerRadius={60} dataKey="value" stroke="none">
+                      <Cell fill="#3B6FE8" /><Cell fill="#F59E0B" />
+                    </Pie>
+                    <text x={70} y={60} textAnchor="middle" style={{ fontSize: 18, fontWeight: 800, fill: 'var(--text)' }}>{permPct}%</text>
+                    <text x={70} y={78} textAnchor="middle" style={{ fontSize: 11, fill: 'var(--text-2)' }}>Permanent</text>
+                  </PieChart>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
+                    {[
+                      { label: 'Permanent', color: '#3B6FE8', val: `${permPct}%`, count: empSplit.permanent },
+                      { label: 'Part-Time',  color: '#F59E0B', val: `${ptPct}%`,  count: empSplit.partTime },
+                    ].map(s => (
+                      <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                        <div style={{ width: 10, height: 10, borderRadius: '50%', background: s.color, flexShrink: 0 }} />
+                        <span style={{ color: 'var(--text-2)', flex: 1 }}>{s.label}</span>
+                        <span style={{ color: 'var(--text-3)', fontSize: 12, marginRight: 4 }}>{s.count}</span>
+                        <span style={{ fontWeight: 700 }}>{s.val}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
+                </div>
+              );
+            })()}
           </Card>
         </div>
 
