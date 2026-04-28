@@ -61,7 +61,7 @@ export default function WorkEntryPage() {
       });
       const json = await res.json();
       if (json.error) throw new Error(json.error);
-      toast.success('Work entry submitted for approval!');
+      toast.success(json.message || 'Work entry submitted!');
       setDesc('');
       setProofUrl('');
       setProofName('');

@@ -338,12 +338,12 @@ export default function EmployeesPage() {
             <div className="form-row">
               {salaryType === 'hourly' ? (
                 <div className="form-group">
-                  <label className="form-label">Hourly Rate (₹)</label>
+                  <label className="form-label">Hourly Rate (SAR)</label>
                   <input className="form-input" type="number" placeholder="200" {...register('hourly_rate')} />
                 </div>
               ) : (
                 <div className="form-group">
-                  <label className="form-label">Monthly Salary (₹)</label>
+                  <label className="form-label">Monthly Salary (SAR)</label>
                   <input className="form-input" type="number" placeholder="45000" {...register('monthly_salary')} />
                 </div>
               )}

@@ -82,7 +82,7 @@ export default function EmpDashboard() {
               <>
                 <div style={{ color: 'var(--success)', fontSize: 24, fontWeight: 800 }}>{formatCurrency(currentPayroll.net_pay)}</div>
                 <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>
-                  {new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })} Salary
+                  {new Date().toLocaleDateString('en-SA', { month: 'long', year: 'numeric' })} Salary
                 </div>
                 <Badge status={currentPayroll.status}>
                   {currentPayroll.status === 'paid' ? '✓ Paid' : currentPayroll.status === 'generated' ? '⏳ Pending' : '📋 Draft'}

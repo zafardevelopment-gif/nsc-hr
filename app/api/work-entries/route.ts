@@ -50,30 +50,49 @@ export async function POST(req: NextRequest) {
 
     const empId = session.role === 'employee' ? session.employee_id! : body.employee_id;
 
+    // Check if manual approval is required
+    const { data: approvalSetting } = await db.from('NSC_HR_settings')
+      .select('setting_value')
+      .eq('setting_key', 'work_entry_manual_approval')
+      .single();
+    const isManual = approvalSetting?.setting_value === 'true';
+    const status = isManual ? 'pending' : 'approved';
+
     const entry = {
       employee_id: empId,
       entry_date: body.entry_date,
       start_time: body.start_time,
       end_time: body.end_time,
       total_hours: body.total_hours,
+      adjusted_hours: isManual ? null : body.total_hours,
       task_description: body.task_description,
       proof_url: body.proof_url,
       proof_filename: body.proof_filename,
-      status: 'pending',
+      status,
     };
 
     const { data, error } = await db.from('NSC_HR_work_entries').insert(entry).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    // Create notification for admin
-    await db.from('NSC_HR_notifications').insert({
-      title: 'New Work Entry',
-      message: `A new work entry has been submitted for ${body.entry_date}`,
-      target_role: 'admin',
-      notification_type: 'in-app',
-    });
+    if (isManual) {
+      // Notify admin for manual review
+      await db.from('NSC_HR_notifications').insert({
+        title: 'New Work Entry',
+        message: `A new work entry has been submitted for ${body.entry_date} — pending your approval`,
+        target_role: 'admin',
+        notification_type: 'in-app',
+      });
+    } else {
+      // Notify employee that entry was auto-approved
+      await db.from('NSC_HR_notifications').insert({
+        title: 'Work Entry Approved',
+        message: `Your work entry for ${body.entry_date} (${body.total_hours}h) has been automatically approved`,
+        employee_id: empId,
+        notification_type: 'in-app',
+      });
+    }
 
-    return NextResponse.json({ data, message: 'Work entry submitted' }, { status: 201 });
+    return NextResponse.json({ data, message: isManual ? 'Work entry submitted — pending approval' : 'Work entry submitted and auto-approved' }, { status: 201 });
   } catch {
     return NextResponse.json({ error: 'Failed to submit work entry' }, { status: 500 });
   }

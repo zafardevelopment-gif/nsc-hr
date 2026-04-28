@@ -146,9 +146,12 @@ export default function PayslipPage() {
           <div className="payslip-paper" ref={payslipRef}>
             {/* Header */}
             <div className="payslip-header">
-              <div>
-                <div style={{ color: '#fff', fontWeight: 800, fontSize: 20, marginBottom: 2 }}>NSC Employee</div>
-                <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>Payslip · {getPayrollMonthLabel(month)}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, color: '#fff', fontWeight: 800, flexShrink: 0 }}>﷼</div>
+                <div>
+                  <div style={{ color: '#fff', fontWeight: 800, fontSize: 20, marginBottom: 2 }}>NSC Employee</div>
+                  <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>Payslip · {getPayrollMonthLabel(month)}</div>
+                </div>
               </div>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ color: '#fff', fontWeight: 700, fontSize: 16 }}>{emp?.full_name || user.username}</div>
@@ -218,7 +221,7 @@ export default function PayslipPage() {
             {payroll.status === 'paid' && (
               <div style={{ padding: '20px 28px', display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 20, background: 'var(--surface-2)' }}>
                 {[
-                  { l: 'Payment Date', v: payroll.payment_date ? new Date(payroll.payment_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }) : '—' },
+                  { l: 'Payment Date', v: payroll.payment_date ? new Date(payroll.payment_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'long', year: 'numeric' }) : '—' },
                   { l: 'Method',       v: payroll.payment_method || '—' },
                   { l: 'Reference No', v: payroll.transaction_ref || '—' },
                   { l: 'Account',      v: payroll.bank_last4 ? `••••${payroll.bank_last4}` : '—' },

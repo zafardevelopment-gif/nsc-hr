@@ -29,7 +29,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     // Notify employee
     await db.from('NSC_HR_notifications').insert({
       title: 'Salary Paid',
-      message: `Your salary of ₹${payroll.net_pay.toLocaleString()} for ${payroll.payroll_month} has been paid via ${body.payment_method}`,
+      message: `Your salary of SAR ${payroll.net_pay.toLocaleString('en-SA')} for ${payroll.payroll_month} has been paid via ${body.payment_method}`,
       employee_id: payroll.employee_id,
       notification_type: 'in-app',
     });

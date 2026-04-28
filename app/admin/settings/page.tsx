@@ -38,7 +38,7 @@ export default function SettingsPage() {
     setSaving(true);
     try {
       const categoryKeys: Record<string, string[]> = {
-        General: ['company_name', 'company_address', 'company_email', 'company_phone', 'currency', 'currency_symbol', 'financial_year', 'working_hours_day', 'timezone'],
+        General: ['company_name', 'company_address', 'company_email', 'company_phone', 'currency', 'currency_symbol', 'financial_year', 'working_hours_day', 'timezone', 'work_entry_manual_approval'],
         'Payroll Config': ['pf_rate', 'professional_tax', 'hra_rate', 'conveyance'],
         'Leave Policy': ['casual_leave_days', 'sick_leave_days', 'emergency_leave_days'],
         Integrations: ['whatsapp_api_url', 'whatsapp_api_key'],
@@ -94,10 +94,11 @@ export default function SettingsPage() {
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Currency</label>
-                    <select className="form-select" value={settings.currency || 'INR'} onChange={e => set('currency', e.target.value)}>
-                      <option value="INR">INR (₹)</option>
+                    <select className="form-select" value={settings.currency || 'SAR'} onChange={e => set('currency', e.target.value)}>
+                      <option value="SAR">SAR (﷼)</option>
                       <option value="USD">USD ($)</option>
                       <option value="EUR">EUR (€)</option>
+                      <option value="INR">INR (₹)</option>
                     </select>
                   </div>
                   <div className="form-group">
@@ -129,6 +130,38 @@ export default function SettingsPage() {
                   <label className="form-label">Company Phone</label>
                   <input className="form-input" value={settings.company_phone || ''} onChange={e => set('company_phone', e.target.value)} />
                 </div>
+
+                {/* Work Entry Approval */}
+                <div style={{ background: 'var(--bg)', borderRadius: 10, padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 2 }}>⏱️ Work Entry Approval</div>
+                    <div style={{ fontSize: 13, color: 'var(--text-2)' }}>
+                      {settings.work_entry_manual_approval === 'true'
+                        ? 'Manual — Admin must approve each work entry'
+                        : 'Auto — Work entries are approved automatically on submission'}
+                    </div>
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', flexShrink: 0 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: settings.work_entry_manual_approval === 'true' ? 'var(--primary)' : 'var(--text-3)' }}>
+                      {settings.work_entry_manual_approval === 'true' ? 'Manual' : 'Auto'}
+                    </span>
+                    <div
+                      onClick={() => set('work_entry_manual_approval', settings.work_entry_manual_approval === 'true' ? 'false' : 'true')}
+                      style={{
+                        width: 44, height: 24, borderRadius: 12, cursor: 'pointer', transition: 'background 0.2s',
+                        background: settings.work_entry_manual_approval === 'true' ? 'var(--primary)' : 'var(--border)',
+                        position: 'relative', flexShrink: 0,
+                      }}
+                    >
+                      <div style={{
+                        position: 'absolute', top: 3, width: 18, height: 18, borderRadius: '50%', background: '#fff',
+                        transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                        left: settings.work_entry_manual_approval === 'true' ? 23 : 3,
+                      }} />
+                    </div>
+                  </label>
+                </div>
+
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                   <Button variant="ghost">Reset</Button>
                   <Button loading={saving} onClick={() => save('General')}>Save Changes</Button>
@@ -148,7 +181,7 @@ export default function SettingsPage() {
                     <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Applied on basic salary for permanent employees</span>
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Professional Tax (₹ fixed)</label>
+                    <label className="form-label">Professional Tax (SAR fixed)</label>
                     <input className="form-input" type="number" value={settings.professional_tax || '200'} onChange={e => set('professional_tax', e.target.value)} />
                   </div>
                 </div>
@@ -158,7 +191,7 @@ export default function SettingsPage() {
                     <input className="form-input" type="number" step="1" value={settings.hra_rate || '25'} onChange={e => set('hra_rate', e.target.value)} />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Conveyance Allowance (₹)</label>
+                    <label className="form-label">Conveyance Allowance (SAR)</label>
                     <input className="form-input" type="number" value={settings.conveyance || '3000'} onChange={e => set('conveyance', e.target.value)} />
                   </div>
                 </div>

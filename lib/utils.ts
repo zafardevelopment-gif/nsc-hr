@@ -2,8 +2,8 @@ export function cn(...inputs: (string | undefined | null | false | 0)[]) {
   return inputs.filter(Boolean).join(' ');
 }
 
-export function formatCurrency(amount: number, symbol = '₹'): string {
-  return `${symbol}${amount.toLocaleString('en-IN')}`;
+export function formatCurrency(amount: number, symbol = 'SAR'): string {
+  return `${symbol} ${amount.toLocaleString('en-SA')}`;
 }
 
 export function formatDate(dateStr: string): string {
