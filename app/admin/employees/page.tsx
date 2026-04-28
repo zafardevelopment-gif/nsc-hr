@@ -220,7 +220,6 @@ export default function EmployeesPage() {
           </div>
 
           <Pagination page={page} totalPages={totalPages} total={total} pageSize={perPage} onChange={setPage} label="employees" />
-          </div>
         </div>
 
         {/* Employee Profile Modal */}
