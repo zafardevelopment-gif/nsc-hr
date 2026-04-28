@@ -239,5 +239,6 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   .mobile-nav { display: flex; }
   .stat-grid { grid-template-columns: repeat(2, 1fr); }
   .form-row { grid-template-columns: 1fr; }
+  .dash-grid { grid-template-columns: 1fr !important; }
 }
 @media (max-width: 480px) { .stat-grid { grid-template-columns: 1fr; } }

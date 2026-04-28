@@ -78,7 +78,7 @@ export function EmployeeMobileNav({ user: _user }: { user: User }) {
   ];
 
   return (
-    <div className="mobile-nav" style={{ display: 'flex' }}>
+    <div className="mobile-nav">
       {allItems.map(item => (
         <div
           key={item.href}

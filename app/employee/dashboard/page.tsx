@@ -108,7 +108,7 @@ export default function EmpDashboard() {
         </div>
 
         {/* Quick actions + recent */}
-        <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'var(--dash-cols, 280px 1fr)', gap: 16 }} className="dash-grid">
           <Card title="Quick Actions">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {QUICK_ACTIONS.map(a => (
