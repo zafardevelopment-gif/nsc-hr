@@ -16,6 +16,7 @@ const PAGE_SIZE = 10;
 export default function WorkApprovalPage() {
   const { user } = useUser();
   const [entries, setEntries] = useState<WorkEntry[]>([]);
+  const [counts, setCounts] = useState({ pending: 0, approved: 0, rejected: 0 });
   const [tab, setTab] = useState('pending');
   const [selected, setSelected] = useState<WorkEntry | null>(null);
   const [remark, setRemark] = useState('');
@@ -25,17 +26,28 @@ export default function WorkApprovalPage() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
 
+  const loadCounts = useCallback(async () => {
+    try {
+      const [p, a, r] = await Promise.all([
+        fetch('/api/work-entries?status=pending&limit=1').then(r => r.json()),
+        fetch('/api/work-entries?status=approved&limit=1').then(r => r.json()),
+        fetch('/api/work-entries?status=rejected&limit=1').then(r => r.json()),
+      ]);
+      setCounts({ pending: p.count || 0, approved: a.count || 0, rejected: r.count || 0 });
+    } catch {}
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/work-entries?status=${tab}`);
+      const res = await fetch(`/api/work-entries?status=${tab}&limit=200`);
       const json = await res.json();
       setEntries(json.data || []);
     } catch { toast.error('Failed to load'); }
     finally { setLoading(false); }
   }, [tab]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); loadCounts(); }, [load, loadCounts]);
 
   async function handleAction(id: string, status: 'approved' | 'rejected') {
     setSubmitting(true);
@@ -56,18 +68,13 @@ export default function WorkApprovalPage() {
       setRemark('');
       setAdjHours('');
       load();
+      loadCounts();
     } catch (e: unknown) {
       toast.error((e as Error).message);
     } finally {
       setSubmitting(false);
     }
   }
-
-  const counts = {
-    pending: entries.filter(e => e.status === 'pending').length,
-    approved: entries.filter(e => e.status === 'approved').length,
-    rejected: entries.filter(e => e.status === 'rejected').length,
-  };
 
   const filtered = entries.filter(e => {
     if (!search) return true;

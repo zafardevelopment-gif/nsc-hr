@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
 
   const db = createServerSupabase();
   let query = db.from('NSC_HR_work_entries')
-    .select('*', { count: 'exact' });
+    .select('*, employee:NSC_HR_employees(id,full_name,employee_code,department)', { count: 'exact' });
 
   // Employees can only see their own entries
   if (session.role === 'employee') {
