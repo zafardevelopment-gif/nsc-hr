@@ -35,11 +35,10 @@ const empSchema = z.object({
 
 type EmpForm = z.infer<typeof empSchema>;
 
-const DEPARTMENTS = ['Engineering', 'Design', 'Sales', 'HR', 'Finance', 'Marketing', 'Operations', 'Management'];
-
 export default function EmployeesPage() {
   const { user } = useUser();
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [departments, setDepartments] = useState<string[]>([]);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
@@ -77,6 +76,13 @@ export default function EmployeesPage() {
   }, [search, typeFilter, deptFilter, page]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    fetch('/api/departments')
+      .then(r => r.json())
+      .then(j => setDepartments((j.data || []).map((d: { name: string }) => d.name)))
+      .catch(() => {});
+  }, []);
 
   async function onSubmit(data: EmpForm) {
     setSubmitting(true);
@@ -162,7 +168,7 @@ export default function EmployeesPage() {
           ))}
           <select className="form-select" style={{ width: 'auto' }} value={deptFilter} onChange={e => { setDeptFilter(e.target.value); setPage(1); }}>
             <option value="">All Departments</option>
-            {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
+            {departments.map(d => <option key={d}>{d}</option>)}
           </select>
         </div>
 
@@ -310,7 +316,7 @@ export default function EmployeesPage() {
                 <label className="form-label">Department *</label>
                 <select className={`form-select ${errors.department ? 'error' : ''}`} {...register('department')}>
                   <option value="">Select department</option>
-                  {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
+                  {departments.map(d => <option key={d}>{d}</option>)}
                 </select>
                 {errors.department && <span className="form-error">{errors.department.message}</span>}
               </div>

@@ -136,6 +136,16 @@ CREATE TABLE IF NOT EXISTS "NSC_HR_notifications" (
   created_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- ─── Departments ───
+CREATE TABLE IF NOT EXISTS "NSC_HR_departments" (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name            VARCHAR(100) UNIQUE NOT NULL,
+  description     TEXT,
+  active          BOOLEAN DEFAULT true,
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- ─── Settings ───
 CREATE TABLE IF NOT EXISTS "NSC_HR_settings" (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -172,3 +182,4 @@ CREATE INDEX IF NOT EXISTS idx_notifications_read ON "NSC_HR_notifications"(read
 CREATE INDEX IF NOT EXISTS idx_activity_logs_user ON "NSC_HR_activity_logs"(user_id);
 CREATE INDEX IF NOT EXISTS idx_employees_code ON "NSC_HR_employees"(employee_code);
 CREATE INDEX IF NOT EXISTS idx_employees_dept ON "NSC_HR_employees"(department);
+CREATE INDEX IF NOT EXISTS idx_departments_name ON "NSC_HR_departments"(name);

@@ -7,7 +7,13 @@ import { useUser } from '@/lib/hooks';
 import { Setting } from '@/types';
 import toast from 'react-hot-toast';
 
-const NAV_ITEMS = ['General', 'Payroll Config', 'Leave Policy', 'Integrations', 'Security'];
+interface Department {
+  id: string;
+  name: string;
+  description: string | null;
+}
+
+const NAV_ITEMS = ['General', 'Payroll Config', 'Leave Policy', 'Departments', 'Integrations', 'Security'];
 
 export default function SettingsPage() {
   const { user } = useUser();
@@ -15,6 +21,11 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [deptLoading, setDeptLoading] = useState(false);
+  const [newDeptName, setNewDeptName] = useState('');
+  const [newDeptDesc, setNewDeptDesc] = useState('');
+  const [addingDept, setAddingDept] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -29,6 +40,53 @@ export default function SettingsPage() {
     }
     load();
   }, []);
+
+  async function loadDepartments() {
+    setDeptLoading(true);
+    try {
+      const res = await fetch('/api/departments');
+      const json = await res.json();
+      setDepartments(json.data || []);
+    } catch { toast.error('Failed to load departments'); }
+    finally { setDeptLoading(false); }
+  }
+
+  useEffect(() => {
+    if (activeNav === 'Departments') loadDepartments();
+  }, [activeNav]);
+
+  async function addDepartment() {
+    if (!newDeptName.trim()) return;
+    setAddingDept(true);
+    try {
+      const res = await fetch('/api/departments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newDeptName.trim(), description: newDeptDesc.trim() || null }),
+      });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      toast.success('Department added');
+      setNewDeptName('');
+      setNewDeptDesc('');
+      loadDepartments();
+    } catch (e: unknown) {
+      toast.error((e as Error).message);
+    } finally { setAddingDept(false); }
+  }
+
+  async function deleteDepartment(id: string, name: string) {
+    if (!confirm(`Delete department "${name}"?`)) return;
+    try {
+      const res = await fetch(`/api/departments?id=${id}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      toast.success('Department deleted');
+      loadDepartments();
+    } catch (e: unknown) {
+      toast.error((e as Error).message);
+    }
+  }
 
   function set(key: string, value: string) {
     setSettings(s => ({ ...s, [key]: value }));
@@ -222,6 +280,89 @@ export default function SettingsPage() {
                 </div>
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                   <Button loading={saving} onClick={() => save('Leave Policy')}>Save Leave Policy</Button>
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {activeNav === 'Departments' && (
+            <Card title="Department Management">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                {/* Add new department */}
+                <div style={{ background: 'var(--bg)', borderRadius: 10, padding: 16 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12 }}>Add New Department</div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-label">Department Name *</label>
+                      <input
+                        className="form-input"
+                        placeholder="e.g. Engineering"
+                        value={newDeptName}
+                        onChange={e => setNewDeptName(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && addDepartment()}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Description (optional)</label>
+                      <input
+                        className="form-input"
+                        placeholder="Short description"
+                        value={newDeptDesc}
+                        onChange={e => setNewDeptDesc(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && addDepartment()}
+                      />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <Button loading={addingDept} onClick={addDepartment} disabled={!newDeptName.trim()}>
+                      Add Department
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Departments list */}
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>
+                    Existing Departments
+                    <span style={{ fontWeight: 400, fontSize: 12, color: 'var(--text-2)', marginLeft: 8 }}>
+                      ({departments.length} total)
+                    </span>
+                  </div>
+                  {deptLoading ? (
+                    <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-2)', fontSize: 13 }}>Loading...</div>
+                  ) : departments.length === 0 ? (
+                    <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-2)', fontSize: 13 }}>
+                      No departments yet. Add one above.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {departments.map(dept => (
+                        <div
+                          key={dept.id}
+                          style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            background: 'var(--bg)', borderRadius: 8, padding: '10px 14px',
+                            border: '1px solid var(--border-2)',
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: 14 }}>{dept.name}</div>
+                            {dept.description && (
+                              <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2 }}>{dept.description}</div>
+                            )}
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            style={{ color: 'var(--danger)' }}
+                            onClick={() => deleteDepartment(dept.id, dept.name)}
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </Card>
