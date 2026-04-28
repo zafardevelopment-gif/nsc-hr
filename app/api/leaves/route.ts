@@ -9,10 +9,11 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const status = searchParams.get('status') || '';
   const empId = searchParams.get('empId') || '';
+  const limit = parseInt(searchParams.get('limit') || '200');
 
   const db = createServerSupabase();
   let query = db.from('NSC_HR_leave_requests')
-    .select('*', { count: 'exact' });
+    .select('*, employee:NSC_HR_employees(id,full_name,employee_code,department)', { count: 'exact' });
 
   if (session.role === 'employee') {
     query = query.eq('employee_id', session.employee_id!);
@@ -21,7 +22,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (status) query = query.eq('status', status);
-  query = query.order('created_at', { ascending: false });
+  query = query.order('created_at', { ascending: false }).limit(limit);
 
   const { data, error, count } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

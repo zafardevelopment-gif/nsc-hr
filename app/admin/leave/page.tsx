@@ -5,22 +5,16 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Avatar } from '@/components/ui/Avatar';
 import { Tabs } from '@/components/ui/Tabs';
-import { Progress } from '@/components/ui/Progress';
 import { useUser } from '@/lib/hooks';
 import { LeaveRequest } from '@/types';
 import { formatDate } from '@/lib/utils';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
 
-const LEAVE_SUMMARY = [
-  { type: 'Casual Leave',    total: 12, used: 3,  color: 'var(--primary)' },
-  { type: 'Sick Leave',      total: 6,  used: 1,  color: 'var(--success)' },
-  { type: 'Emergency Leave', total: 3,  used: 0,  color: 'var(--danger)' },
-];
-
 export default function LeaveApprovalPage() {
   const { user } = useUser();
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
+  const [counts, setCounts] = useState({ pending: 0, approved: 0, rejected: 0 });
   const [tab, setTab] = useState('pending');
   const [loading, setLoading] = useState(true);
   const [remark, setRemark] = useState<Record<string, string>>({});
@@ -28,17 +22,28 @@ export default function LeaveApprovalPage() {
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
 
+  const loadCounts = useCallback(async () => {
+    try {
+      const [p, a, r] = await Promise.all([
+        fetch('/api/leaves?status=pending&limit=1').then(r => r.json()),
+        fetch('/api/leaves?status=approved&limit=1').then(r => r.json()),
+        fetch('/api/leaves?status=rejected&limit=1').then(r => r.json()),
+      ]);
+      setCounts({ pending: p.count || 0, approved: a.count || 0, rejected: r.count || 0 });
+    } catch {}
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/leaves?status=${tab}`);
+      const res = await fetch(`/api/leaves?status=${tab}&limit=200`);
       const json = await res.json();
       setLeaves(json.data || []);
     } catch { toast.error('Failed to load'); }
     finally { setLoading(false); }
   }, [tab]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); loadCounts(); }, [load, loadCounts]);
 
   async function act(id: string, status: 'approved' | 'rejected') {
     try {
@@ -51,6 +56,7 @@ export default function LeaveApprovalPage() {
       if (json.error) throw new Error(json.error);
       toast.success(`Leave ${status}`);
       load();
+      loadCounts();
     } catch (e: unknown) {
       toast.error((e as Error).message);
     }
@@ -84,28 +90,11 @@ export default function LeaveApprovalPage() {
         actions={<Button variant="ghost" icon="📊" onClick={exportExcel}>Export Excel</Button>}
       />
       <div className="page-content">
-        {/* Leave balance overview cards */}
-        <div className="leave-cards">
-          {LEAVE_SUMMARY.map(b => (
-            <div key={b.type} className="leave-card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>{b.type}</div>
-                <span style={{ fontSize: 13, color: 'var(--text-2)' }}>{b.used}/{b.total}</span>
-              </div>
-              <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 6 }}>
-                {b.total - b.used}
-                <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-2)', marginLeft: 6 }}>remaining</span>
-              </div>
-              <Progress value={b.used} max={b.total} color={b.color} />
-            </div>
-          ))}
-        </div>
-
         <Tabs
           tabs={[
-            { key: 'pending',  label: 'Pending',  count: leaves.filter(l => l.status === 'pending').length },
-            { key: 'approved', label: 'Approved', count: leaves.filter(l => l.status === 'approved').length },
-            { key: 'rejected', label: 'Rejected', count: leaves.filter(l => l.status === 'rejected').length },
+            { key: 'pending',  label: 'Pending',  count: counts.pending },
+            { key: 'approved', label: 'Approved', count: counts.approved },
+            { key: 'rejected', label: 'Rejected', count: counts.rejected },
           ]}
           active={tab}
           onChange={t => { setTab(t); setPage(1); }}
