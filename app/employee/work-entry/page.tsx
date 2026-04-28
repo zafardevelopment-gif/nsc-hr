@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { EmployeeTopbar } from '@/components/employee/EmployeeTopbar';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -164,12 +164,24 @@ export default function WorkEntryPage() {
                     <thead><tr><th>Date</th><th>Hours</th><th>Description</th><th>Status</th></tr></thead>
                     <tbody>
                       {filteredEntries.map(e => (
-                        <tr key={e.id}>
-                          <td className="muted">{formatDate(e.entry_date)}</td>
-                          <td><strong style={{ color: 'var(--primary)' }}>{e.adjusted_hours || e.total_hours}h</strong></td>
-                          <td className="muted" style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.task_description}</td>
-                          <td><Badge status={e.status} dot /></td>
-                        </tr>
+                        <React.Fragment key={e.id}>
+                          <tr>
+                            <td className="muted">{formatDate(e.entry_date)}</td>
+                            <td><strong style={{ color: 'var(--primary)' }}>{e.adjusted_hours || e.total_hours}h</strong></td>
+                            <td className="muted" style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.task_description}</td>
+                            <td><Badge status={e.status} dot /></td>
+                          </tr>
+                          {e.status === 'rejected' && e.admin_remark && (
+                            <tr>
+                              <td colSpan={4} style={{ padding: '0 12px 10px', paddingTop: 0 }}>
+                                <div style={{ background: '#fff1f0', border: '1px solid #ffccc7', borderRadius: 6, padding: '8px 12px', fontSize: 12, color: '#cf1322', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                                  <span style={{ fontWeight: 700, flexShrink: 0 }}>Admin Remark:</span>
+                                  <span>{e.admin_remark}</span>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
                       ))}
                     </tbody>
                   </table>
