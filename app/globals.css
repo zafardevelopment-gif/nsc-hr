@@ -198,6 +198,11 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .payslip-section-right { border-left: 1px solid var(--border); }
 .payslip-payment-grid { padding: 20px 28px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 20; background: var(--surface-2); }
 
+/* ─── Reports ─── */
+.reports-charts { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+.report-table-wrap { display: block; }
+.report-cards { display: none; }
+
 /* ─── Notification items ─── */
 .notif-item { display: flex; gap: 14px; align-items: flex-start; padding: 14px 20px; border-bottom: 1px solid var(--border-2); transition: background 0.15s; cursor: pointer; }
 .notif-item:hover { background: var(--surface-2); }
@@ -219,7 +224,8 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .settings-nav-item.active { background: var(--primary-light); color: var(--primary); font-weight: 700; }
 
 /* ─── Mobile bottom nav ─── */
-.mobile-nav { display: none; position: fixed; bottom: 0; left: 0; right: 0; background: var(--surface); border-top: 1px solid var(--border); z-index: 100; }
+.mobile-nav { display: none; position: fixed; bottom: 0; left: 0; right: 0; background: var(--surface); border-top: 1px solid var(--border); z-index: 100; overflow-x: auto; }
+.mobile-nav-item { min-width: 52px; }
 
 /* ─── Spinner ─── */
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -253,6 +259,10 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   .payslip-section-right { border-left: none; border-top: 1px solid var(--border); }
   .payslip-section { padding: 18px 16px; }
   .payslip-payment-grid { grid-template-columns: 1fr 1fr !important; padding: 16px !important; gap: 14px !important; }
+  /* Reports mobile */
+  .reports-charts { grid-template-columns: 1fr; }
+  .report-table-wrap { display: none; }
+  .report-cards { display: block; }
 }
 @media (max-width: 480px) {
   .stat-grid { grid-template-columns: 1fr; }

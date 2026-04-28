@@ -83,25 +83,20 @@ export default function ReportsPage() {
 
   return (
     <>
-      <AdminTopbar title="Reports & Analytics" user={user}
-        actions={
-          <div style={{ display: 'flex', gap: 10 }}>
-            <Button variant="ghost" icon="📊" onClick={exportExcel}>Export Excel</Button>
-          </div>
-        }
-      />
+      <AdminTopbar title="Reports & Analytics" user={user} />
       <div className="page-content">
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <select className="form-select" style={{ width: 'auto' }} value={month} onChange={e => setMonth(e.target.value)}>
             {monthOptions.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
-          <input className="form-input" placeholder="Search employee..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} style={{ maxWidth: 220 }} />
+          <input className="form-input" placeholder="Search employee..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} style={{ flex: 1, minWidth: 140, maxWidth: 260 }} />
+          <Button variant="ghost" icon="📊" onClick={exportExcel} size="sm">Export Excel</Button>
         </div>
 
         <Tabs tabs={TABS} active={tab} onChange={t => { setTab(t); setSearch(''); setPage(1); }} />
 
-        {/* Charts */}
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
+        {/* Charts — hidden on mobile to save space */}
+        <div className="reports-charts">
           <Card title="Monthly Payroll Trend">
             <ResponsiveContainer width="100%" height={190}>
               <BarChart data={chartData} margin={{ top: 0, right: 0, bottom: 0, left: -20 }}>
@@ -142,97 +137,149 @@ export default function ReportsPage() {
             <div className="card-title">{tab === 'payroll' ? 'Payroll Report' : tab === 'attendance' ? 'Attendance Report' : tab === 'leave' ? 'Leave Report' : 'Employee Directory'}</div>
             <span style={{ fontSize: 13, color: 'var(--text-2)' }}>{filtered.length} records</span>
           </div>
-          <div className="table-wrap">
-            {loading ? (
-              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>Loading...</div>
-            ) : (
-              <table className="data-table">
-                {tab === 'payroll' && (
-                  <>
-                    <thead><tr><th>Employee</th><th>Basic</th><th>Gross</th><th>Deductions</th><th>Net Pay</th><th>Status</th></tr></thead>
-                    <tbody>
-                      {paged.map((r, i) => {
-                        const emp = r.employee as { full_name: string; department: string } | undefined;
-                        return (
+
+          {loading ? (
+            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>Loading...</div>
+          ) : paged.length === 0 ? (
+            <div className="empty-state" style={{ padding: 40 }}><div className="empty-icon">📊</div><div>No data found</div></div>
+          ) : (
+            <>
+              {/* Desktop table */}
+              <div className="report-table-wrap table-wrap">
+                <table className="data-table">
+                  {tab === 'payroll' && (
+                    <>
+                      <thead><tr><th>Employee</th><th>Basic</th><th>Gross</th><th>Deductions</th><th>Net Pay</th><th>Status</th></tr></thead>
+                      <tbody>
+                        {paged.map((r, i) => {
+                          const emp = r.employee as { full_name: string; department: string } | undefined;
+                          return (
+                            <tr key={i}>
+                              <td><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Avatar name={emp?.full_name || ''} size="sm" /><div><div style={{ fontWeight: 600 }}>{emp?.full_name}</div><div style={{ fontSize: 12, color: 'var(--text-2)' }}>{emp?.department}</div></div></div></td>
+                              <td>{formatCurrency(Number(r.basic_salary) || 0)}</td>
+                              <td>{formatCurrency(Number(r.gross_earnings) || 0)}</td>
+                              <td><span style={{ color: 'var(--danger)' }}>-{formatCurrency(Number(r.total_deductions) || 0)}</span></td>
+                              <td><strong>{formatCurrency(Number(r.net_pay) || 0)}</strong></td>
+                              <td><Badge status={String(r.status)} /></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </>
+                  )}
+                  {tab === 'attendance' && (
+                    <>
+                      <thead><tr><th>Employee</th><th>Date</th><th>Hours</th><th>Description</th><th>Status</th></tr></thead>
+                      <tbody>
+                        {paged.map((r, i) => {
+                          const emp = r.employee as { full_name: string } | undefined;
+                          return (
+                            <tr key={i}>
+                              <td><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Avatar name={emp?.full_name || ''} size="sm" /><span style={{ fontWeight: 600 }}>{emp?.full_name}</span></div></td>
+                              <td className="muted">{formatDate(String(r.entry_date))}</td>
+                              <td><strong>{Number(r.total_hours)}h</strong></td>
+                              <td className="muted" style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(r.task_description || '—')}</td>
+                              <td><Badge status={String(r.status)} /></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </>
+                  )}
+                  {tab === 'leave' && (
+                    <>
+                      <thead><tr><th>Employee</th><th>Leave Type</th><th>From</th><th>To</th><th>Days</th><th>Reason</th><th>Status</th></tr></thead>
+                      <tbody>
+                        {paged.map((r, i) => {
+                          const emp = r.employee as { full_name: string } | undefined;
+                          return (
+                            <tr key={i}>
+                              <td><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Avatar name={emp?.full_name || ''} size="sm" /><span style={{ fontWeight: 600 }}>{emp?.full_name}</span></div></td>
+                              <td><Badge status={String(r.leave_type).split(' ')[0].toLowerCase()}>{String(r.leave_type)}</Badge></td>
+                              <td className="muted">{formatDate(String(r.from_date))}</td>
+                              <td className="muted">{formatDate(String(r.to_date))}</td>
+                              <td><strong>{Number(r.total_days)}d</strong></td>
+                              <td className="muted" style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(r.reason || '—')}</td>
+                              <td><Badge status={String(r.status)} /></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </>
+                  )}
+                  {tab === 'employees' && (
+                    <>
+                      <thead><tr><th>Code</th><th>Name</th><th>Department</th><th>Designation</th><th>Type</th><th>Salary</th><th>Joined</th><th>Status</th></tr></thead>
+                      <tbody>
+                        {paged.map((r, i) => (
                           <tr key={i}>
-                            <td><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Avatar name={emp?.full_name || ''} size="sm" /><div><div style={{ fontWeight: 600 }}>{emp?.full_name}</div><div style={{ fontSize: 12, color: 'var(--text-2)' }}>{emp?.department}</div></div></div></td>
-                            <td>{formatCurrency(Number(r.basic_salary) || 0)}</td>
-                            <td>{formatCurrency(Number(r.gross_earnings) || 0)}</td>
-                            <td><span style={{ color: 'var(--danger)' }}>-{formatCurrency(Number(r.total_deductions) || 0)}</span></td>
-                            <td><strong>{formatCurrency(Number(r.net_pay) || 0)}</strong></td>
-                            <td><Badge status={String(r.status)} /></td>
+                            <td className="muted" style={{ fontFamily: 'monospace', fontWeight: 600 }}>{String(r.employee_code || '—')}</td>
+                            <td><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Avatar name={String(r.full_name || '')} size="sm" /><span style={{ fontWeight: 600 }}>{String(r.full_name)}</span></div></td>
+                            <td className="muted">{String(r.department || '—')}</td>
+                            <td className="muted">{String(r.designation || '—')}</td>
+                            <td><Badge status={String(r.emp_type)}>{String(r.emp_type)}</Badge></td>
+                            <td><strong>{r.salary_type === 'hourly' ? `${formatCurrency(Number(r.hourly_rate) || 0)}/hr` : formatCurrency(Number(r.monthly_salary) || 0)}</strong></td>
+                            <td className="muted">{formatDate(String(r.joining_date))}</td>
+                            <td><Badge status={r.active ? 'active' : 'inactive'} dot /></td>
                           </tr>
-                        );
-                      })}
-                      {paged.length === 0 && <tr><td colSpan={6}><div className="empty-state"><div className="empty-icon">📊</div><div>No data</div></div></td></tr>}
-                    </tbody>
-                  </>
-                )}
-                {tab === 'attendance' && (
-                  <>
-                    <thead><tr><th>Employee</th><th>Date</th><th>Hours</th><th>Description</th><th>Status</th></tr></thead>
-                    <tbody>
-                      {paged.map((r, i) => {
-                        const emp = r.employee as { full_name: string } | undefined;
-                        return (
-                          <tr key={i}>
-                            <td><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Avatar name={emp?.full_name || ''} size="sm" /><span style={{ fontWeight: 600 }}>{emp?.full_name}</span></div></td>
-                            <td className="muted">{formatDate(String(r.entry_date))}</td>
-                            <td><strong>{Number(r.total_hours)}h</strong></td>
-                            <td className="muted" style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(r.task_description || '—')}</td>
-                            <td><Badge status={String(r.status)} /></td>
-                          </tr>
-                        );
-                      })}
-                      {paged.length === 0 && <tr><td colSpan={5}><div className="empty-state"><div className="empty-icon">📊</div><div>No data</div></div></td></tr>}
-                    </tbody>
-                  </>
-                )}
-                {tab === 'leave' && (
-                  <>
-                    <thead><tr><th>Employee</th><th>Leave Type</th><th>From</th><th>To</th><th>Days</th><th>Reason</th><th>Status</th></tr></thead>
-                    <tbody>
-                      {paged.map((r, i) => {
-                        const emp = r.employee as { full_name: string } | undefined;
-                        return (
-                          <tr key={i}>
-                            <td><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Avatar name={emp?.full_name || ''} size="sm" /><span style={{ fontWeight: 600 }}>{emp?.full_name}</span></div></td>
-                            <td><Badge status={String(r.leave_type).split(' ')[0].toLowerCase()}>{String(r.leave_type)}</Badge></td>
-                            <td className="muted">{formatDate(String(r.from_date))}</td>
-                            <td className="muted">{formatDate(String(r.to_date))}</td>
-                            <td><strong>{Number(r.total_days)}d</strong></td>
-                            <td className="muted" style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(r.reason || '—')}</td>
-                            <td><Badge status={String(r.status)} /></td>
-                          </tr>
-                        );
-                      })}
-                      {paged.length === 0 && <tr><td colSpan={7}><div className="empty-state"><div className="empty-icon">📊</div><div>No data</div></div></td></tr>}
-                    </tbody>
-                  </>
-                )}
-                {tab === 'employees' && (
-                  <>
-                    <thead><tr><th>Code</th><th>Name</th><th>Department</th><th>Designation</th><th>Type</th><th>Salary</th><th>Joined</th><th>Status</th></tr></thead>
-                    <tbody>
-                      {paged.map((r, i) => (
-                        <tr key={i}>
-                          <td className="muted" style={{ fontFamily: 'monospace', fontWeight: 600 }}>{String(r.employee_code || '—')}</td>
-                          <td><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Avatar name={String(r.full_name || '')} size="sm" /><span style={{ fontWeight: 600 }}>{String(r.full_name)}</span></div></td>
-                          <td className="muted">{String(r.department || '—')}</td>
-                          <td className="muted">{String(r.designation || '—')}</td>
-                          <td><Badge status={String(r.emp_type)}>{String(r.emp_type)}</Badge></td>
-                          <td><strong>{r.salary_type === 'hourly' ? `${formatCurrency(Number(r.hourly_rate) || 0)}/hr` : formatCurrency(Number(r.monthly_salary) || 0)}</strong></td>
-                          <td className="muted">{formatDate(String(r.joining_date))}</td>
-                          <td><Badge status={r.active ? 'active' : 'inactive'} dot /></td>
-                        </tr>
-                      ))}
-                      {paged.length === 0 && <tr><td colSpan={8}><div className="empty-state"><div className="empty-icon">👥</div><div>No employees found</div></div></td></tr>}
-                    </tbody>
-                  </>
-                )}
-              </table>
-            )}
-          </div>
+                        ))}
+                      </tbody>
+                    </>
+                  )}
+                </table>
+              </div>
+
+              {/* Mobile cards */}
+              <div className="report-cards">
+                {paged.map((r, i) => {
+                  const emp = r.employee as { full_name: string; department: string; employee_code: string } | undefined;
+                  const name = emp?.full_name || String(r.full_name || '');
+                  const dept = emp?.department || String(r.department || '');
+                  const code = emp?.employee_code || String(r.employee_code || '');
+                  return (
+                    <div key={i} style={{ padding: '14px 16px', borderBottom: '1px solid var(--border-2)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <Avatar name={name} size="sm" />
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: 14 }}>{name}</div>
+                            <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{code}{dept ? ` · ${dept}` : ''}</div>
+                          </div>
+                        </div>
+                        <Badge status={String(r.status || (r.active ? 'active' : 'inactive'))} dot />
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px' }}>
+                        {tab === 'payroll' && (<>
+                          <div><span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>NET PAY</span><div style={{ fontWeight: 800, color: 'var(--primary)' }}>{formatCurrency(Number(r.net_pay) || 0)}</div></div>
+                          <div><span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>GROSS</span><div style={{ fontWeight: 600 }}>{formatCurrency(Number(r.gross_earnings) || 0)}</div></div>
+                          <div><span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>BASIC</span><div>{formatCurrency(Number(r.basic_salary) || 0)}</div></div>
+                          <div><span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>DEDUCTIONS</span><div style={{ color: 'var(--danger)' }}>-{formatCurrency(Number(r.total_deductions) || 0)}</div></div>
+                        </>)}
+                        {tab === 'attendance' && (<>
+                          <div><span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>DATE</span><div>{formatDate(String(r.entry_date))}</div></div>
+                          <div><span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>HOURS</span><div style={{ fontWeight: 700, color: 'var(--primary)' }}>{Number(r.total_hours)}h</div></div>
+                          <div style={{ gridColumn: '1/-1' }}><span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>DESCRIPTION</span><div style={{ color: 'var(--text-2)', fontSize: 13 }}>{String(r.task_description || '—')}</div></div>
+                        </>)}
+                        {tab === 'leave' && (<>
+                          <div><span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>TYPE</span><div><Badge status={String(r.leave_type).split(' ')[0].toLowerCase()}>{String(r.leave_type)}</Badge></div></div>
+                          <div><span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>DAYS</span><div style={{ fontWeight: 700 }}>{Number(r.total_days)}d</div></div>
+                          <div><span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>FROM</span><div>{formatDate(String(r.from_date))}</div></div>
+                          <div><span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>TO</span><div>{formatDate(String(r.to_date))}</div></div>
+                        </>)}
+                        {tab === 'employees' && (<>
+                          <div><span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>DESIGNATION</span><div>{String(r.designation || '—')}</div></div>
+                          <div><span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>TYPE</span><div><Badge status={String(r.emp_type)}>{String(r.emp_type)}</Badge></div></div>
+                          <div><span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>SALARY</span><div style={{ fontWeight: 700 }}>{r.salary_type === 'hourly' ? `${formatCurrency(Number(r.hourly_rate) || 0)}/hr` : formatCurrency(Number(r.monthly_salary) || 0)}</div></div>
+                          <div><span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>JOINED</span><div>{formatDate(String(r.joining_date))}</div></div>
+                        </>)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
           {totalPages > 1 && (
             <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-2)' }}>
               <span style={{ fontSize: 13, color: 'var(--text-2)' }}>Page {page} of {totalPages}</span>

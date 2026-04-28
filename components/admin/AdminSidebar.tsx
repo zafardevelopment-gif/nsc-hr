@@ -19,10 +19,11 @@ const ADMIN_ITEMS = [
 
 const MOBILE_NAV_ITEMS = [
   { href: '/admin/dashboard',     icon: '📊', label: 'Dashboard' },
-  { href: '/admin/employees',     icon: '👥', label: 'Employees' },
+  { href: '/admin/employees',     icon: '👥', label: 'Staff' },
   { href: '/admin/work-approval', icon: '⏱️', label: 'Work' },
   { href: '/admin/leave',         icon: '🗓️', label: 'Leave' },
   { href: '/admin/payroll',       icon: '💰', label: 'Payroll' },
+  { href: '/admin/reports',       icon: '📈', label: 'Reports' },
   { href: '__logout__',           icon: '⎋',  label: 'Logout' },
 ];
 
