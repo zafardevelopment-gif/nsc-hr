@@ -134,12 +134,20 @@ export default function PayrollPage() {
       const res = await fetch(`/api/payroll/${selectedPay.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'mark_paid', ...payForm, payment_method: payForm.method }),
+        body: JSON.stringify({
+          action: 'mark_paid',
+          payment_method: payForm.method,
+          transaction_ref: payForm.ref,
+          payment_date: payForm.date,
+          payment_notes: payForm.notes,
+          bank_last4: payForm.bank_last4,
+        }),
       });
       const json = await res.json();
       if (json.error) throw new Error(json.error);
       toast.success('Payment marked');
       setShowPayModal(false);
+      setSelectedPay(json.data || null);
       load();
     } catch (e: unknown) {
       toast.error((e as Error).message);
@@ -312,19 +320,23 @@ export default function PayrollPage() {
     // Payment details if paid
     if (selectedPay.status === 'paid') {
       const py = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
-      doc.setFontSize(11); doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(0, 0, 0);
       doc.text('Payment Details', 14, py + 6);
+      const payDate = selectedPay.payment_date ? new Date(selectedPay.payment_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+      const payRows: string[][] = [
+        ['Payment Date', payDate],
+        ['Method',       selectedPay.payment_method || '—'],
+        ...(selectedPay.transaction_ref ? [['Reference No.', selectedPay.transaction_ref]] : []),
+        ...(selectedPay.bank_last4      ? [['Account',       `••••${selectedPay.bank_last4}`]] : []),
+        ...(selectedPay.payment_notes   ? [['Remarks',       selectedPay.payment_notes]] : []),
+      ];
       autoTable(doc, {
         startY: py + 10,
-        head: [['Payment Date', 'Method', 'Reference', 'Account']],
-        body: [[
-          selectedPay.payment_date ? new Date(selectedPay.payment_date).toLocaleDateString('en-SA') : '—',
-          selectedPay.payment_method || '—',
-          selectedPay.transaction_ref || '—',
-          selectedPay.bank_last4 ? `••••${selectedPay.bank_last4}` : '—',
-        ]],
+        head: [['Field', 'Details']],
+        body: payRows,
         theme: 'striped', styles: { fontSize: 9 },
-        headStyles: { fillColor: [27, 168, 154] },
+        headStyles: { fillColor: [22, 163, 74] },
+        columnStyles: { 0: { fontStyle: 'bold', cellWidth: 50 } },
       });
     }
 
@@ -782,18 +794,22 @@ export default function PayrollPage() {
 
                 {/* Payment info if paid */}
                 {selectedPay.status === 'paid' && (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 10 }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: 'var(--success)' }}>✓ Payment Details</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 10 }}>
                     {[
-                      { l: 'Payment Date', v: selectedPay.payment_date ? new Date(selectedPay.payment_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'short', year: 'numeric' }) : '—' },
+                      { l: 'Payment Date', v: selectedPay.payment_date ? new Date(selectedPay.payment_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'long', year: 'numeric' }) : '—' },
                       { l: 'Method',       v: selectedPay.payment_method || '—' },
-                      { l: 'Reference',    v: selectedPay.transaction_ref || '—' },
-                      { l: 'Account',      v: selectedPay.bank_last4 ? `••••${selectedPay.bank_last4}` : '—' },
+                      ...(selectedPay.transaction_ref ? [{ l: 'Reference No.', v: selectedPay.transaction_ref }] : []),
+                      ...(selectedPay.bank_last4      ? [{ l: 'Account',       v: `••••${selectedPay.bank_last4}` }] : []),
+                      ...(selectedPay.payment_notes   ? [{ l: 'Remarks',       v: selectedPay.payment_notes }] : []),
                     ].map(s => (
                       <div key={s.l} style={{ background: 'var(--bg)', borderRadius: 8, padding: '10px 14px' }}>
                         <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{s.l}</div>
                         <div style={{ fontWeight: 600 }}>{s.v}</div>
                       </div>
                     ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -810,36 +826,45 @@ export default function PayrollPage() {
         >
           {selectedPay && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div className="alert alert-info">
-                Marking payment for {(selectedPay.employee as { full_name: string })?.full_name}
-              </div>
-              <div className="form-group">
-                <label className="form-label">Payment Method</label>
-                <select className="form-select" value={payForm.method} onChange={e => setPayForm(f => ({ ...f, method: e.target.value }))}>
-                  <option>Bank Transfer</option><option>Cash</option><option>UPI</option><option>Cheque</option><option>Other</option>
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Transaction Reference No.</label>
-                <input className="form-input" placeholder="TXN / UTR number" value={payForm.ref} onChange={e => setPayForm(f => ({ ...f, ref: e.target.value }))} />
+              <div style={{ background: 'var(--primary-light)', borderRadius: 8, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontWeight: 700 }}>{(selectedPay.employee as { full_name: string })?.full_name}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{getPayrollMonthLabel(selectedPay.payroll_month)}</div>
+                </div>
+                <strong style={{ fontSize: 20, color: 'var(--primary)' }}>{formatCurrency(selectedPay.net_pay)}</strong>
               </div>
               <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Payment Method</label>
+                  <select className="form-select" value={payForm.method} onChange={e => setPayForm(f => ({ ...f, method: e.target.value, ref: '', bank_last4: '' }))}>
+                    <option>Bank Transfer</option>
+                    <option>Cash</option>
+                    <option>Cheque</option>
+                    <option>Other</option>
+                  </select>
+                </div>
                 <div className="form-group">
                   <label className="form-label">Payment Date</label>
                   <input className="form-input" type="date" value={payForm.date} onChange={e => setPayForm(f => ({ ...f, date: e.target.value }))} />
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Bank Last 4 Digits</label>
-                  <input className="form-input" placeholder="4231" maxLength={4} value={payForm.bank_last4} onChange={e => setPayForm(f => ({ ...f, bank_last4: e.target.value }))} />
-                </div>
               </div>
+              {(payForm.method === 'Bank Transfer' || payForm.method === 'Cheque') && (
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">{payForm.method === 'Cheque' ? 'Cheque No.' : 'Transaction / Reference No.'}</label>
+                    <input className="form-input" placeholder={payForm.method === 'Cheque' ? 'CHQ-XXXXXX' : 'TXN-XXXXXX'} value={payForm.ref} onChange={e => setPayForm(f => ({ ...f, ref: e.target.value }))} />
+                  </div>
+                  {payForm.method === 'Bank Transfer' && (
+                    <div className="form-group">
+                      <label className="form-label">Bank Account Last 4 Digits</label>
+                      <input className="form-input" placeholder="e.g. 4231" maxLength={4} value={payForm.bank_last4} onChange={e => setPayForm(f => ({ ...f, bank_last4: e.target.value }))} />
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="form-group">
                 <label className="form-label">Remarks <span style={{ fontWeight: 400, color: 'var(--text-2)', fontSize: 12 }}>(optional)</span></label>
-                <textarea className="form-textarea" placeholder="Any notes..." value={payForm.notes} onChange={e => setPayForm(f => ({ ...f, notes: e.target.value }))} style={{ minHeight: 60 }} />
-              </div>
-              <div style={{ background: 'var(--bg)', borderRadius: 8, padding: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: 'var(--text-2)' }}>Net Amount</span>
-                <strong style={{ fontSize: 18 }}>{formatCurrency(selectedPay.net_pay)}</strong>
+                <textarea className="form-textarea" placeholder="Any notes..." value={payForm.notes} onChange={e => setPayForm(f => ({ ...f, notes: e.target.value }))} style={{ minHeight: 56 }} />
               </div>
             </div>
           )}

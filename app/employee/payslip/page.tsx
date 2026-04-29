@@ -196,10 +196,22 @@ export default function PayslipPage() {
     doc.text(formatCurrency(payroll.net_pay), 196, y + 12, { align: 'right' });
 
     if (payroll.status === 'paid') {
-      doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(100, 100, 100);
-      doc.text(`Payment Date: ${payroll.payment_date || '—'}`, 14, y + 28);
-      doc.text(`Method: ${payroll.payment_method || '—'}`, 80, y + 28);
-      doc.text(`Ref: ${payroll.transaction_ref || '—'}`, 140, y + 28);
+      const payDate = payroll.payment_date ? new Date(payroll.payment_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+      const payRows: string[][] = [
+        ['Payment Date', payDate],
+        ['Method', payroll.payment_method || '—'],
+        ...(payroll.transaction_ref ? [['Reference No.', payroll.transaction_ref]] : []),
+        ...(payroll.bank_last4      ? [['Account',       `••••${payroll.bank_last4}`]] : []),
+        ...(payroll.payment_notes   ? [['Remarks',       payroll.payment_notes]] : []),
+      ];
+      autoTable(doc, {
+        startY: y + 24,
+        head: [['Payment Details', '']],
+        body: payRows,
+        theme: 'striped', styles: { fontSize: 9 },
+        headStyles: { fillColor: [22, 163, 74] },
+        columnStyles: { 0: { fontStyle: 'bold', cellWidth: 50 } },
+      });
     }
 
     // Footer
@@ -444,8 +456,9 @@ export default function PayslipPage() {
                   {[
                     { l: 'Payment Date', v: payroll.payment_date ? new Date(payroll.payment_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'long', year: 'numeric' }) : '—' },
                     { l: 'Method',       v: payroll.payment_method || '—' },
-                    { l: 'Reference No', v: payroll.transaction_ref || '—' },
-                    { l: 'Account',      v: payroll.bank_last4 ? `••••${payroll.bank_last4}` : '—' },
+                    ...(payroll.transaction_ref ? [{ l: 'Reference No.', v: payroll.transaction_ref }] : []),
+                    ...(payroll.bank_last4      ? [{ l: 'Account',       v: `••••${payroll.bank_last4}` }] : []),
+                    ...(payroll.payment_notes   ? [{ l: 'Remarks',       v: payroll.payment_notes }] : []),
                   ].map(s => (
                     <div key={s.l}>
                       <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>{s.l}</div>
