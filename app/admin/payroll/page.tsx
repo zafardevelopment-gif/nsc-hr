@@ -9,6 +9,7 @@ import { useUser } from '@/lib/hooks';
 import { Payroll } from '@/types';
 import { Pagination } from '@/components/ui/Pagination';
 import { formatCurrency, getMonthOptions, getPayrollMonthLabel } from '@/lib/utils';
+import { buildPayrollSummary, EntryRecord } from '@/lib/payrollStatus';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -42,6 +43,8 @@ export default function PayrollPage() {
   const [page, setPage] = useState(1);
   // Maps employeeId → { payrollId, payrollCreatedAt } for supplement generation
   const [newEntryMap, setNewEntryMap] = useState<Map<string, { payrollId: string; payrollCreatedAt: string }>>(new Map());
+  // Entry-level status counts per employee: used for accurate summary banner
+  const [entryStatusByEmp, setEntryStatusByEmp] = useState<Map<string, { paid: number; unpaid: number; notGenerated: number; nextCycle: number }>>(new Map());
   const PAGE_SIZE = 10;
 
   const monthOptions = getMonthOptions();
@@ -55,29 +58,47 @@ export default function PayrollPage() {
         fetch(`/api/work-entries?month=${month}&status=approved&limit=500`).then(r => r.json()),
       ]);
       const payrollData: Payroll[] = payRes.data || [];
-      const workEntries: { employee_id: string; created_at?: string }[] = workRes.data || [];
+      // work entries already include payroll_id from the API join
+      const workEntries: EntryRecord[] = (workRes.data || []).map((e: EntryRecord) => ({ ...e, status: 'approved' }));
       setPayroll(payrollData);
       setAllEmployees(empRes.data || []);
 
-      // Find employees who have approved work entries created AFTER their payroll was generated
-      // Only look at 'regular' payroll records; skip employees who already have a supplement
-      const supplementEmpIds = new Set(payrollData.filter(p => p.payroll_type === 'supplement').map(p => p.employee_id));
-      const payrollByEmp = new Map<string, { id: string; created_at?: string; status: string }>();
-      for (const p of payrollData) {
-        if ((p.payroll_type ?? 'regular') === 'regular') {
-          payrollByEmp.set(p.employee_id, { id: p.id, created_at: p.created_at, status: p.status });
-        }
-      }
+      // Entry-level status per employee — using explicit payroll_id linkage
+      const empIds = new Set<string>([
+        ...payrollData.map(p => p.employee_id),
+        ...workEntries.map(e => e.employee_id).filter((id): id is string => !!id),
+      ]);
+
+      const empStatusMap = new Map<string, { paid: number; unpaid: number; notGenerated: number; nextCycle: number }>();
       const newMap = new Map<string, { payrollId: string; payrollCreatedAt: string }>();
-      for (const e of workEntries) {
-        if (supplementEmpIds.has(e.employee_id)) continue; // supplement already generated
-        const pay = payrollByEmp.get(e.employee_id);
-        if (pay && pay.created_at && e.created_at) {
-          if (new Date(e.created_at) > new Date(pay.created_at)) {
-            newMap.set(e.employee_id, { payrollId: pay.id, payrollCreatedAt: pay.created_at });
+
+      for (const empId of empIds) {
+        const empPayrolls = payrollData.filter(p => p.employee_id === empId);
+        const empEntries  = workEntries.filter(e => e.employee_id === empId);
+        const summary = buildPayrollSummary(empPayrolls, empEntries);
+
+        const counts = { paid: 0, unpaid: 0, notGenerated: 0, nextCycle: 0 };
+        for (const e of summary.entriesWithStatus) {
+          if (e.salaryStatus === 'paid')        counts.paid++;
+          else if (e.salaryStatus === 'unpaid')  counts.unpaid++;
+          else if (e.salaryStatus === 'next_cycle' || e.salaryStatus === 'no_payroll') {
+            counts.notGenerated++;
+            if (e.salaryStatus === 'next_cycle') counts.nextCycle++;
+          }
+        }
+        empStatusMap.set(empId, counts);
+
+        // For the "Generate Supplement" button: employee has unlinked approved entries
+        // and a regular payroll exists.
+        const hasUnlinked = summary.nextCycleHours > 0;
+        if (hasUnlinked) {
+          const regularPay = empPayrolls.find(p => (p.payroll_type ?? 'regular') === 'regular');
+          if (regularPay) {
+            newMap.set(empId, { payrollId: regularPay.id, payrollCreatedAt: regularPay.created_at ?? '' });
           }
         }
       }
+      setEntryStatusByEmp(empStatusMap);
       setNewEntryMap(newMap);
     } catch { toast.error('Failed to load payroll'); }
     finally { setLoading(false); }
@@ -106,11 +127,11 @@ export default function PayrollPage() {
     }
   }
 
-  async function generateForEmployee(empId: string, supplementInfo?: { payrollId: string; payrollCreatedAt: string }) {
+  async function generateForEmployee(empId: string, isSupplement = false) {
     setGeneratingId(empId);
     try {
-      const body = supplementInfo
-        ? { month, empId, supplement: true, parentPayrollId: supplementInfo.payrollId, parentCreatedAt: supplementInfo.payrollCreatedAt }
+      const body = isSupplement
+        ? { month, empId, supplement: true }
         : { month, empId };
       const res = await fetch('/api/payroll', {
         method: 'POST',
@@ -347,26 +368,55 @@ export default function PayrollPage() {
     }
 
     // Payment details if paid
-    if (selectedPay.status === 'paid') {
-      const py = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
-      doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(0, 0, 0);
-      doc.text('Payment Details', 14, py + 6);
-      const payDate = selectedPay.payment_date ? new Date(selectedPay.payment_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
-      const payRows: string[][] = [
-        ['Payment Date', payDate],
-        ['Method',       selectedPay.payment_method || '—'],
-        ...(selectedPay.transaction_ref ? [['Reference No.', selectedPay.transaction_ref]] : []),
-        ...(selectedPay.bank_last4      ? [['Account',       `••••${selectedPay.bank_last4}`]] : []),
-        ...(selectedPay.payment_notes   ? [['Remarks',       selectedPay.payment_notes]] : []),
-      ];
-      autoTable(doc, {
-        startY: py + 10,
-        head: [['Field', 'Details']],
-        body: payRows,
-        theme: 'striped', styles: { fontSize: 9 },
-        headStyles: { fillColor: [22, 163, 74] },
-        columnStyles: { 0: { fontStyle: 'bold', cellWidth: 50 } },
-      });
+    {
+      let py = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+      if (selectedPay.status === 'paid') {
+        doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(0, 0, 0);
+        doc.text('Payment Details', 14, py + 6);
+        const payDate = selectedPay.payment_date ? new Date(selectedPay.payment_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+        const payRows: string[][] = [
+          ['Payment Date', payDate],
+          ['Method',       selectedPay.payment_method || '—'],
+          ...(selectedPay.transaction_ref ? [['Reference No.', selectedPay.transaction_ref]] : []),
+          ...(selectedPay.bank_last4      ? [['Account',       `••••${selectedPay.bank_last4}`]] : []),
+          ...(selectedPay.payment_notes   ? [['Remarks',       selectedPay.payment_notes]] : []),
+        ];
+        autoTable(doc, {
+          startY: py + 10,
+          head: [['Field', 'Details']],
+          body: payRows,
+          theme: 'striped', styles: { fontSize: 9 },
+          headStyles: { fillColor: [22, 163, 74] },
+          columnStyles: { 0: { fontStyle: 'bold', cellWidth: 50 } },
+        });
+        py = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+      }
+
+      // Supplement payroll section (if exists for this employee+month)
+      const suppRecord = payroll.find(p => p.employee_id === selectedPay.employee_id && p.payroll_type === 'supplement' && p.payroll_month === selectedPay.payroll_month);
+      if (suppRecord) {
+        doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(99, 102, 241);
+        doc.text('Supplemental Payroll', 14, py + 6);
+        const suppRows: string[][] = [
+          ['Net Pay',  formatCurrency(suppRecord.net_pay || 0)],
+          ['Status',   suppRecord.status === 'paid' ? 'Paid' : 'Pending Payment'],
+          ...(suppRecord.status === 'paid' && suppRecord.payment_date
+            ? [['Payment Date', new Date(suppRecord.payment_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'short', year: 'numeric' })]]
+            : []),
+          ...(suppRecord.status === 'paid' && suppRecord.payment_method
+            ? [['Method', suppRecord.payment_method]]
+            : []),
+          ...(suppRecord.transaction_ref ? [['Reference No.', suppRecord.transaction_ref]] : []),
+        ];
+        autoTable(doc, {
+          startY: py + 10,
+          head: [['Field', 'Details']],
+          body: suppRows,
+          theme: 'striped', styles: { fontSize: 9 },
+          headStyles: { fillColor: [99, 102, 241] },
+          columnStyles: { 0: { fontStyle: 'bold', cellWidth: 50 } },
+        });
+      }
     }
 
     // Footer
@@ -383,39 +433,47 @@ export default function PayrollPage() {
 
   const total = payroll.reduce((s, p) => s + (p.net_pay || 0), 0);
 
-  // Priority classification per employee:
-  // 1. Has new entries (approved after payroll generation) → counts as Not Generated
-  // 2. Payroll exists but unpaid → Unpaid
-  // 3. Payroll exists and paid (and no new entries) → Paid
+  // ── Entry-level summary counts ──────────────────────────────────────────
+  // Count distinct employees in each bucket (an employee can be in multiple)
+  let paidEmpCount = 0, unpaidEmpCount = 0, notGeneratedEmpCount = 0, newEntryCount = 0;
+  for (const [, counts] of entryStatusByEmp) {
+    if (counts.paid > 0)         paidEmpCount++;
+    if (counts.unpaid > 0)       unpaidEmpCount++;
+    if (counts.notGenerated > 0) notGeneratedEmpCount++;
+    if (counts.nextCycle > 0)    newEntryCount++;
+  }
+
+  // Employees who have NO payroll record at all (not captured in entryStatusByEmp yet)
   const generatedEmpIds = new Set(payroll.map(p => p.employee_id));
-
-  // Employees with no payroll at all
   const noPayrollEmployees = allEmployees.filter(e => !generatedEmpIds.has(e.id));
+  // Also count active employees with no approved entries and no payroll
+  for (const emp of noPayrollEmployees) {
+    if (!entryStatusByEmp.has(emp.id)) notGeneratedEmpCount++;
+  }
 
-  // Employees who have payroll but also have new entries added after generation
-  // These are treated as "Not Generated" because the extra work isn't in the payroll yet
-  // Only regular (not supplement) payrolls that have new entries — supplements don't need recalc
-  const payrollWithNewEntries = payroll.filter(p => newEntryMap.has(p.employee_id) && (p.payroll_type ?? 'regular') === 'regular');
-
-  // "Not Generated" tab shows: truly no-payroll employees + paid employees with new entries
+  // "Not Generated" tab: employees with unprocessed approved entries OR no payroll at all
   type NotGenItem =
     | { kind: 'no-payroll'; emp: Employee }
     | { kind: 'new-entry';  payroll: Payroll; emp: Employee };
 
+  // Employees with next_cycle entries (have payroll but entries added after)
+  const empsWithNextCycle = [...entryStatusByEmp.entries()]
+    .filter(([, c]) => c.nextCycle > 0)
+    .map(([empId]) => empId);
+
   const notGenItems: NotGenItem[] = [
+    // True no-payroll employees
     ...noPayrollEmployees.map(e => ({ kind: 'no-payroll' as const, emp: e })),
-    ...payrollWithNewEntries.map(p => {
-      const emp = (p.employee as Employee | undefined) || allEmployees.find(e => e.id === p.employee_id)!;
+    // Employees with payroll but unprocessed next-cycle entries
+    ...empsWithNextCycle.map(empId => {
+      const p = payroll.find(p => p.employee_id === empId && (p.payroll_type ?? 'regular') === 'regular')!;
+      const emp = (p?.employee as Employee | undefined) || allEmployees.find(e => e.id === empId)!;
       return { kind: 'new-entry' as const, payroll: p, emp };
-    }),
+    }).filter(item => item.emp), // guard against missing employee data
   ];
 
-  // Summary counts
-  const newEntryCount = payrollWithNewEntries.length;
-  const notGeneratedCount = noPayrollEmployees.length + newEntryCount;
-  // Unpaid: payroll exists, not paid, and NOT in new-entry bucket (those go to Not Generated)
-  const unpaid = payroll.filter(p => p.status !== 'paid' && !newEntryMap.has(p.employee_id)).length;
-  const paid = payroll.filter(p => p.status === 'paid' && !newEntryMap.has(p.employee_id)).length;
+  // Generated count = number of distinct employees with any payroll record
+  const generatedCount = new Set(payroll.map(p => p.employee_id)).size;
 
   const filtered = tab === 'generated'
     ? payroll.filter(p => {
@@ -462,12 +520,12 @@ export default function PayrollPage() {
         {/* Summary banner */}
         <div style={{ background: 'var(--sidebar-2)', borderRadius: 'var(--radius)', padding: '20px 24px', display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 16 }}>
           {[
-            { l: 'Total Payroll',  v: formatCurrency(total),   warn: false },
-            { l: 'Generated',      v: payroll.length,          warn: false },
-            { l: 'Paid',           v: paid,                    warn: false },
-            { l: 'Unpaid',         v: unpaid,                  warn: unpaid > 0 },
-            { l: 'Not Generated',  v: notGeneratedCount,       warn: notGeneratedCount > 0 },
-            { l: 'New Entries',    v: newEntryCount,           warn: newEntryCount > 0 },
+            { l: 'Total Payroll',  v: formatCurrency(total),       warn: false },
+            { l: 'Generated',      v: generatedCount,              warn: false },
+            { l: 'Paid',           v: paidEmpCount,                warn: false },
+            { l: 'Unpaid',         v: unpaidEmpCount,              warn: unpaidEmpCount > 0 },
+            { l: 'Not Generated',  v: notGeneratedEmpCount,        warn: notGeneratedEmpCount > 0 },
+            { l: 'New Entries',    v: newEntryCount,               warn: newEntryCount > 0 },
           ].map(s => (
             <div key={s.l}>
               <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 11, marginBottom: 4 }}>{s.l}</div>
@@ -484,13 +542,13 @@ export default function PayrollPage() {
               style={{ padding: '9px 18px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 13,
                 background: tab === 'generated' ? 'var(--primary)' : 'transparent',
                 color: tab === 'generated' ? '#fff' : 'var(--text-2)' }}>
-              ✓ Generated ({payroll.length})
+              ✓ Generated ({generatedCount})
             </button>
             <button onClick={() => setTab('not-generated')}
               style={{ padding: '9px 18px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 13,
                 background: tab === 'not-generated' ? 'var(--danger)' : 'transparent',
                 color: tab === 'not-generated' ? '#fff' : 'var(--text-2)' }}>
-              ✗ Not Generated ({notGeneratedCount})
+              ✗ Not Generated ({notGeneratedEmpCount})
             </button>
           </div>
           <select className="form-select" style={{ width: 'auto' }} value={month} onChange={e => { setMonth(e.target.value); setPage(1); }}>
@@ -533,20 +591,25 @@ export default function PayrollPage() {
                       <td className="muted">{e.salary_type === 'hourly' ? `${formatCurrency(e.hourly_rate || 0)}/hr` : formatCurrency(e.monthly_salary || 0)}</td>
                       <td>
                         {isNewEntry
-                          ? <span style={{ fontSize: 12, color: '#b45309', fontWeight: 600 }}>Approved entries after payroll ({item.payroll.status})</span>
+                          ? <span style={{ fontSize: 12, color: '#b45309', fontWeight: 600 }}>
+                              {item.payroll?.status === 'paid'
+                                ? 'Unlinked entries after paid payroll — supplement needed'
+                                : `Unlinked entries — payroll is ${item.payroll?.status ?? 'generated'}, recalculate to include`}
+                            </span>
                           : <span style={{ fontSize: 12, color: 'var(--text-2)' }}>No payroll generated</span>}
                       </td>
                       <td>
                         <Button variant="success" size="xs" loading={generatingId === e.id}
                           onClick={() => {
                             if (isNewEntry) {
-                              const info = newEntryMap.get(e.id);
-                              generateForEmployee(e.id, info);
+                              // Regular paid → supplement; regular unpaid → recalculate regular
+                              const regularPaid = item.payroll?.status === 'paid';
+                              generateForEmployee(e.id, regularPaid);
                             } else {
-                              generateForEmployee(e.id);
+                              generateForEmployee(e.id, false);
                             }
                           }}>
-                          {isNewEntry ? '↻ Generate Supplement' : '⚡ Generate'}
+                          {isNewEntry ? (item.payroll?.status === 'paid' ? '↻ Generate Supplement' : '↻ Recalculate') : '⚡ Generate'}
                         </Button>
                       </td>
                     </tr>
@@ -715,6 +778,10 @@ export default function PayrollPage() {
           {selectedPay && (() => {
             const emp = selectedPay.employee as { full_name: string; employee_code: string; department: string; emp_type: string; salary_type?: string; hourly_rate?: number } | undefined;
             const totalHours = detailEntries.filter(e => e.status === 'approved').reduce((s, e) => s + (e.adjusted_hours || e.total_hours), 0);
+            // Build per-entry salary status using all payrolls for this employee+month
+            const empPayrollsForModal = payroll.filter(p => p.employee_id === selectedPay.employee_id && p.payroll_month === selectedPay.payroll_month);
+            const { entriesWithStatus: modalAnnotated } = buildPayrollSummary(empPayrollsForModal, detailEntries as EntryRecord[]);
+            const modalStatusMap = new Map(modalAnnotated.map(e => [e.id, e.salaryStatus]));
             const adjMeta: Record<string, { label: string; color: string; sign: string }> = {
               bonus:     { label: 'Bonus',            color: 'var(--success)', sign: '+' },
               overtime:  { label: 'Overtime Pay',     color: 'var(--success)', sign: '+' },
@@ -773,14 +840,13 @@ export default function PayrollPage() {
                         <thead><tr><th>Date</th><th>Hours</th><th>Task</th><th>Status</th><th>Salary</th></tr></thead>
                         <tbody>
                           {detailEntries.map(e => {
-                            const isNew = selectedPay.created_at && e.created_at
-                              ? new Date(e.created_at) > new Date(selectedPay.created_at)
-                              : false;
+                            const salSt = modalStatusMap.get(e.id);
+                            const isNextCycle = salSt === 'next_cycle';
                             return (
-                            <tr key={e.id} style={{ background: isNew ? 'rgba(245,158,11,0.05)' : '' }}>
+                            <tr key={e.id} style={{ background: isNextCycle ? 'rgba(245,158,11,0.05)' : '' }}>
                               <td className="muted" style={{ whiteSpace: 'nowrap' }}>
                                 {new Date(e.entry_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'short' })}
-                                {isNew && <span style={{ marginLeft: 5, fontSize: 10, background: '#f59e0b', color: '#fff', borderRadius: 3, padding: '1px 4px', fontWeight: 700 }}>NEW</span>}
+                                {isNextCycle && <span style={{ marginLeft: 5, fontSize: 10, background: '#f59e0b', color: '#fff', borderRadius: 3, padding: '1px 4px', fontWeight: 700 }}>NEW</span>}
                               </td>
                               <td style={{ fontWeight: 600 }}>
                                 {(e.adjusted_hours || e.total_hours).toFixed(2)}
@@ -791,11 +857,11 @@ export default function PayrollPage() {
                               <td className="muted" style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.task_description || '—'}</td>
                               <td><Badge status={e.status === 'approved' ? 'active' : e.status === 'rejected' ? 'inactive' : 'pending'}>{e.status === 'approved' ? '✓' : e.status === 'rejected' ? '✗' : '⏳'}</Badge></td>
                               <td>
-                                {isNew
-                                  ? <span style={{ fontSize: 11, color: '#b45309', fontWeight: 600 }}>Next Cycle</span>
-                                  : selectedPay.status === 'paid'
-                                  ? <Badge status="active">✓ Paid</Badge>
-                                  : <Badge status="pending">⏳ Unpaid</Badge>}
+                                {salSt === 'paid'        ? <Badge status="active">✓ Paid</Badge>
+                                : salSt === 'unpaid'     ? <Badge status="pending">⏳ Unpaid</Badge>
+                                : salSt === 'next_cycle' ? <span style={{ fontSize: 11, color: '#b45309', fontWeight: 600 }}>Next Cycle</span>
+                                : salSt === 'no_payroll' ? <span style={{ fontSize: 11, color: 'var(--text-3)' }}>Not Generated</span>
+                                : <span style={{ color: 'var(--text-3)' }}>—</span>}
                               </td>
                             </tr>
                             );

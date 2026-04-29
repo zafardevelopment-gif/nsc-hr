@@ -10,6 +10,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { useUser } from '@/lib/hooks';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { WorkEntry, Payroll, LeaveBalance } from '@/types';
+import { buildPayrollSummary, OVERALL_STATUS_LABEL, OVERALL_STATUS_BADGE } from '@/lib/payrollStatus';
 
 interface QuickAction {
   icon: string; label: string; sub: string; href: string;
@@ -25,27 +26,29 @@ const QUICK_ACTIONS: QuickAction[] = [
 export default function EmpDashboard() {
   const { user } = useUser();
   const router = useRouter();
-  const [recentWork, setRecentWork] = useState<WorkEntry[]>([]);
-  const [currentPayroll, setCurrentPayroll] = useState<Payroll | null>(null);
+  const [recentWork, setRecentWork]     = useState<WorkEntry[]>([]);
+  const [currentPayrolls, setCurrentPayrolls] = useState<Payroll[]>([]);
   const [leaveBalances, setLeaveBalances] = useState<LeaveBalance[]>([]);
   const [loading, setLoading] = useState(true);
+  const currentMonth = (() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  })();
 
   useEffect(() => {
     if (!user) return;
     async function load() {
-      const now = new Date();
-      const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
       try {
         const [workRes, payRes, leaveRes] = await Promise.all([
-          fetch('/api/work-entries?limit=5'),
-          fetch(`/api/payroll?month=${month}`),
-          fetch(`/api/leaves/balance?year=${now.getFullYear()}`),
+          fetch(`/api/work-entries?month=${currentMonth}&limit=10`),
+          fetch(`/api/payroll?month=${currentMonth}`),
+          fetch(`/api/leaves/balance?year=${new Date().getFullYear()}`),
         ]);
         const [workData, payData, leaveData] = await Promise.all([
           workRes.json(), payRes.json(), leaveRes.json(),
         ]);
         setRecentWork(workData.data || []);
-        setCurrentPayroll(payData.data?.[0] || null);
+        setCurrentPayrolls(payData.data || []);
         setLeaveBalances(leaveData.data || []);
       } catch {}
       finally { setLoading(false); }
@@ -59,11 +62,17 @@ export default function EmpDashboard() {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
-  const totalHours = recentWork.filter(e => e.status === 'approved').reduce((s, e) => s + (e.adjusted_hours || e.total_hours), 0);
-  const approvedHours = recentWork.filter(e => e.status === 'approved').reduce((s, e) => s + (e.adjusted_hours || e.total_hours), 0);
+  const summary = buildPayrollSummary(currentPayrolls, recentWork);
+  const { overallStatus, totalApprovedHours, totalNetPay, regularPayroll } = summary;
+  const approvedHours = totalApprovedHours;
 
   const casualLeave = leaveBalances.find(l => l.leave_type === 'Casual Leave');
-  const sickLeave = leaveBalances.find(l => l.leave_type === 'Sick Leave');
+  const sickLeave   = leaveBalances.find(l => l.leave_type === 'Sick Leave');
+
+  // Build activity feed: work entries sorted newest first, annotated with salary status
+  const activityItems = [...summary.entriesWithStatus]
+    .sort((a, b) => new Date(b.entry_date).getTime() - new Date(a.entry_date).getTime())
+    .slice(0, 8);
 
   return (
     <>
@@ -78,14 +87,14 @@ export default function EmpDashboard() {
             </div>
           </div>
           <div style={{ textAlign: 'right' }}>
-            {currentPayroll ? (
+            {regularPayroll ? (
               <>
-                <div style={{ color: 'var(--success)', fontSize: 24, fontWeight: 800 }}>{formatCurrency(currentPayroll.net_pay)}</div>
+                <div style={{ color: 'var(--success)', fontSize: 24, fontWeight: 800 }}>{formatCurrency(totalNetPay)}</div>
                 <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>
                   {new Date().toLocaleDateString('en-SA', { month: 'long', year: 'numeric' })} Salary
                 </div>
-                <Badge status={currentPayroll.status}>
-                  {currentPayroll.status === 'paid' ? '✓ Paid' : currentPayroll.status === 'generated' ? '⏳ Pending' : '📋 Draft'}
+                <Badge status={OVERALL_STATUS_BADGE[overallStatus] as 'active' | 'pending' | 'inactive'}>
+                  {OVERALL_STATUS_LABEL[overallStatus]}
                 </Badge>
               </>
             ) : (
@@ -102,9 +111,9 @@ export default function EmpDashboard() {
           <StatCard icon="🤒" iconBg="#ECFDF5" label="Sick Leave Left"
             value={sickLeave ? sickLeave.total_days - sickLeave.used_days : 0}
             trend={sickLeave ? `${sickLeave.used_days} used` : ''} trendDir="up" />
-          <StatCard icon="⏱️" iconBg="#FFFBEB" label="Approved Hours (Month)" value={`${approvedHours}h`} trend="approved" trendDir="up" />
+          <StatCard icon="⏱️" iconBg="#FFFBEB" label="Approved Hours (Month)" value={`${approvedHours.toFixed(1)}h`} trend="approved" trendDir="up" />
           <StatCard icon="💰" iconBg="#ECFDF5" label="Salary Status"
-            value={currentPayroll?.status === 'paid' ? 'Paid' : currentPayroll?.status === 'generated' ? 'Pending' : 'N/A'} />
+            value={overallStatus === 'paid' ? 'Paid' : overallStatus === 'unpaid' ? 'Pending' : overallStatus === 'partial' ? 'Partial' : overallStatus === 'pending_generation' ? 'Not Generated' : 'N/A'} />
         </div>
 
         {/* Quick actions + recent */}
@@ -132,21 +141,34 @@ export default function EmpDashboard() {
           <Card title="Recent Activity" actions={<Button variant="ghost" size="sm" onClick={() => router.push('/employee/work-entry')}>View All</Button>}>
             {loading ? (
               <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-2)' }}>Loading...</div>
-            ) : recentWork.length === 0 ? (
-              <div className="empty-state"><div className="empty-icon">📝</div><div>No entries yet</div></div>
+            ) : activityItems.length === 0 ? (
+              <div className="empty-state"><div className="empty-icon">📝</div><div>No entries this month</div></div>
             ) : (
               <div className="table-wrap">
                 <table className="data-table">
-                  <thead><tr><th>Date</th><th>Hours</th><th>Description</th><th>Status</th></tr></thead>
+                  <thead><tr><th>Date</th><th>Hours</th><th>Description</th><th>Status</th><th>Salary</th></tr></thead>
                   <tbody>
-                    {recentWork.map(e => (
-                      <tr key={e.id}>
-                        <td className="muted">{formatDate(e.entry_date)}</td>
-                        <td><strong style={{ color: 'var(--primary)' }}>{e.adjusted_hours || e.total_hours}h</strong></td>
-                        <td className="muted" style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.task_description}</td>
-                        <td><Badge status={e.status} dot /></td>
-                      </tr>
-                    ))}
+                    {activityItems.map(e => {
+                      const salColor = e.salaryStatus === 'paid' ? 'var(--success)'
+                        : e.salaryStatus === 'unpaid' ? '#b45309'
+                        : e.salaryStatus === 'next_cycle' ? '#ea580c'
+                        : 'var(--text-3)';
+                      const salLabel = e.salaryStatus === 'paid' ? '✓ Paid'
+                        : e.salaryStatus === 'unpaid' ? 'Unpaid'
+                        : e.salaryStatus === 'next_cycle' ? 'Next Cycle'
+                        : e.salaryStatus === 'pending_approval' ? 'Pending'
+                        : e.salaryStatus === 'rejected' ? 'Rejected'
+                        : '—';
+                      return (
+                        <tr key={e.id}>
+                          <td className="muted">{formatDate(e.entry_date)}</td>
+                          <td><strong style={{ color: 'var(--primary)' }}>{e.adjusted_hours || e.total_hours}h</strong></td>
+                          <td className="muted" style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.task_description}</td>
+                          <td><Badge status={e.status} dot /></td>
+                          <td><span style={{ fontSize: 11, fontWeight: 600, color: salColor }}>{salLabel}</span></td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

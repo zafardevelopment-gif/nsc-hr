@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
 
   const db = createServerSupabase();
   let query = db.from('NSC_HR_work_entries')
-    .select('*, employee:NSC_HR_employees(id,full_name,employee_code,department)', { count: 'exact' });
+    .select('*, employee:NSC_HR_employees(id,full_name,employee_code,department), payroll_item:NSC_HR_payroll_items(payroll_id)', { count: 'exact' });
 
   // Employees can only see their own entries
   if (session.role === 'employee') {
@@ -37,7 +37,13 @@ export async function GET(req: NextRequest) {
   const { data, error, count } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  return NextResponse.json({ data, count });
+  // Flatten payroll_item join into a top-level payroll_id field
+  const enriched = (data || []).map((e: Record<string, unknown> & { payroll_item?: { payroll_id: string } | null }) => {
+    const { payroll_item, ...rest } = e;
+    return { ...rest, payroll_id: payroll_item?.payroll_id ?? null };
+  });
+
+  return NextResponse.json({ data: enriched, count });
 }
 
 export async function POST(req: NextRequest) {

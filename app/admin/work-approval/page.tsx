@@ -9,6 +9,7 @@ import { useUser } from '@/lib/hooks';
 import { WorkEntry } from '@/types';
 import { Pagination } from '@/components/ui/Pagination';
 import { formatDate, formatTime } from '@/lib/utils';
+import { buildPayrollSummary, EntryRecord, SALARY_STATUS_LABEL, SALARY_STATUS_COLOR } from '@/lib/payrollStatus';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
 
@@ -17,7 +18,8 @@ const PAGE_SIZE = 10;
 export default function WorkApprovalPage() {
   const { user } = useUser();
   const [entries, setEntries] = useState<WorkEntry[]>([]);
-  const [payrollMap, setPayrollMap] = useState<Record<string, { status: string; updated_at?: string }>>({});
+  // entry.id → salaryStatus (paid/unpaid/next_cycle/no_payroll/etc.)
+  const [salaryStatusMap, setSalaryStatusMap] = useState<Record<string, string>>({});
   const [counts, setCounts] = useState({ pending: 0, approved: 0, rejected: 0 });
   const [tab, setTab] = useState('pending');
   const [selected, setSelected] = useState<WorkEntry | null>(null);
@@ -47,27 +49,49 @@ export default function WorkApprovalPage() {
       const loadedEntries: WorkEntry[] = json.data || [];
       setEntries(loadedEntries);
 
-      // Build payroll status map keyed by "employeeId_YYYY-MM"
-      const pairs = new Map<string, string>();
+      // Entries now carry payroll_id from the API join (NSC_HR_payroll_items).
+      // Fetch payrolls for all employee+month pairs so buildPayrollSummary can classify.
+      const monthEmpPairs = new Map<string, Set<string>>();
       for (const e of loadedEntries) {
         const month = e.entry_date?.slice(0, 7);
-        if (e.employee_id && month) pairs.set(`${e.employee_id}_${month}`, month);
+        if (e.employee_id && month) {
+          if (!monthEmpPairs.has(month)) monthEmpPairs.set(month, new Set());
+          monthEmpPairs.get(month)!.add(e.employee_id);
+        }
       }
-      if (pairs.size > 0) {
-        const months = [...new Set([...pairs.values()])];
+      if (monthEmpPairs.size > 0) {
+        const months = [...monthEmpPairs.keys()];
         const results = await Promise.all(
           months.map(m => fetch(`/api/payroll?month=${m}`).then(r => r.json()))
         );
-        const map: Record<string, { status: string; updated_at?: string }> = {};
+        const payrollsByEmpMonth = new Map<string, { id: string; employee_id: string; payroll_month: string; payroll_type?: string; status: string; net_pay?: number; created_at?: string }[]>();
         for (const result of results) {
           for (const p of (result.data || [])) {
-            // Use created_at (when payroll was first generated) not updated_at (which changes on mark_paid)
-            map[`${p.employee_id}_${p.payroll_month}`] = { status: p.status, updated_at: p.created_at };
+            const key = `${p.employee_id}_${p.payroll_month}`;
+            if (!payrollsByEmpMonth.has(key)) payrollsByEmpMonth.set(key, []);
+            payrollsByEmpMonth.get(key)!.push(p);
           }
         }
-        setPayrollMap(map);
+        const statusMap: Record<string, string> = {};
+        const entriesByEmpMonth = new Map<string, WorkEntry[]>();
+        for (const e of loadedEntries) {
+          const month = e.entry_date?.slice(0, 7);
+          if (e.employee_id && month) {
+            const key = `${e.employee_id}_${month}`;
+            if (!entriesByEmpMonth.has(key)) entriesByEmpMonth.set(key, []);
+            entriesByEmpMonth.get(key)!.push(e);
+          }
+        }
+        for (const [key, empEntries] of entriesByEmpMonth) {
+          const payrolls = payrollsByEmpMonth.get(key) || [];
+          const summary = buildPayrollSummary(payrolls, empEntries as EntryRecord[]);
+          for (const annotated of summary.entriesWithStatus) {
+            statusMap[annotated.id] = annotated.salaryStatus;
+          }
+        }
+        setSalaryStatusMap(statusMap);
       } else {
-        setPayrollMap({});
+        setSalaryStatusMap({});
       }
     } catch { toast.error('Failed to load'); }
     finally { setLoading(false); }
@@ -155,12 +179,7 @@ export default function WorkApprovalPage() {
                     <tr><td colSpan={7}><div className="empty-state"><div className="empty-icon">✅</div><div>No {tab} entries</div></div></td></tr>
                   ) : paged.map(e => {
                     const emp = e.employee as { full_name: string; employee_code: string } | undefined;
-                    const month = e.entry_date?.slice(0, 7);
-                    const payInfo = month ? payrollMap[`${e.employee_id}_${month}`] : undefined;
-                    // Entry is "new" if the work entry was created AFTER the payroll was generated
-                    const isNewEntry = payInfo?.updated_at && e.created_at
-                      ? new Date(e.created_at) > new Date(payInfo.updated_at)
-                      : false;
+                    const salSt = salaryStatusMap[e.id];
                     return (
                       <tr key={e.id} style={{ background: selected?.id === e.id ? 'var(--primary-light)' : '' }}>
                         <td>
@@ -176,15 +195,11 @@ export default function WorkApprovalPage() {
                         <td><strong style={{ color: 'var(--primary)' }}>{e.adjusted_hours || e.total_hours}h</strong></td>
                         <td className="muted" style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.task_description}</td>
                         <td>
-                          {!payInfo
-                            ? <span style={{ color: 'var(--text-3)', fontSize: 12 }}>Not Generated</span>
-                            : isNewEntry
-                            ? <span style={{ fontSize: 12, color: 'var(--warning, #b45309)', fontWeight: 600 }}>⚠ New Entry</span>
-                            : payInfo.status === 'paid'
-                            ? <Badge status="active">✓ Paid</Badge>
-                            : payInfo.status === 'generated'
-                            ? <Badge status="pending">⏳ Unpaid</Badge>
-                            : <Badge status="pending">📋 Draft</Badge>}
+                          {salSt
+                            ? <span style={{ fontSize: 12, fontWeight: 600, color: SALARY_STATUS_COLOR[salSt as keyof typeof SALARY_STATUS_COLOR] || 'var(--text-3)' }}>
+                                {SALARY_STATUS_LABEL[salSt as keyof typeof SALARY_STATUS_LABEL] || salSt}
+                              </span>
+                            : <span style={{ color: 'var(--text-3)', fontSize: 12 }}>—</span>}
                         </td>
                         <td>
                           {e.proof_url

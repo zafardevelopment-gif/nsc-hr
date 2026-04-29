@@ -48,6 +48,7 @@ export interface WorkEntry {
   reviewed_by?: string;
   reviewed_at?: string;
   created_at?: string;
+  payroll_id?: string | null;   // from NSC_HR_payroll_items join
   employee?: Employee;
 }
 

@@ -9,16 +9,16 @@ import { Payroll } from '@/types';
 import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import {
+  buildPayrollSummary,
+  OVERALL_STATUS_LABEL,
+  OVERALL_STATUS_BADGE,
+  SALARY_STATUS_LABEL,
+  SALARY_STATUS_COLOR,
+  EntryRecord,
+} from '@/lib/payrollStatus';
 
-interface WorkEntry {
-  id: string;
-  entry_date: string;
-  total_hours: number;
-  adjusted_hours?: number;
-  task_description?: string;
-  status: string;
-  created_at?: string;
-}
+interface WorkEntry extends EntryRecord {}
 
 interface Adjustment {
   id: string;
@@ -42,7 +42,7 @@ export default function PayslipPage() {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
-  const [payroll, setPayroll]         = useState<Payroll | null>(null);
+  const [payrolls, setPayrolls]       = useState<Payroll[]>([]);
   const [entries, setEntries]         = useState<WorkEntry[]>([]);
   const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
   const [loading, setLoading]         = useState(true);
@@ -59,7 +59,7 @@ export default function PayslipPage() {
       fetch(`/api/work-entries?month=${month}`).then(r => r.json()),
       fetch(`/api/adjustments?month=${month}`).then(r => r.json()),
     ]).then(([pay, work, adj]) => {
-      setPayroll(pay.data?.[0] || null);
+      setPayrolls(pay.data || []);
       setEntries(work.data || []);
       setAdjustments(adj.data || []);
     }).catch(() => {}).finally(() => setLoading(false));
@@ -195,6 +195,36 @@ export default function PayslipPage() {
     doc.setFontSize(12); doc.setFont('helvetica', 'bold'); doc.setTextColor(27, 168, 154);
     doc.text('Net Pay (Take Home)', 18, y + 12);
     doc.text(formatCurrency(payroll.net_pay), 196, y + 12, { align: 'right' });
+    y += 26;
+
+    // Supplement payroll section
+    const suppPayroll = payrolls.find(p => p.payroll_type === 'supplement');
+    if (suppPayroll) {
+      doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(0, 0, 0);
+      doc.text('Supplemental Payroll', 14, y + 6); y += 10;
+      const suppRows: string[][] = [
+        ['Type',       'Supplemental (Additional Entries)'],
+        ['Basic Pay',  formatCurrency(suppPayroll.basic_salary || 0)],
+        ['Net Pay',    formatCurrency(suppPayroll.net_pay || 0)],
+        ['Status',     suppPayroll.status === 'paid' ? 'Paid' : 'Pending Payment'],
+        ...(suppPayroll.status === 'paid' && suppPayroll.payment_date
+          ? [['Payment Date', new Date(suppPayroll.payment_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'short', year: 'numeric' })]]
+          : []),
+        ...(suppPayroll.status === 'paid' && suppPayroll.payment_method
+          ? [['Method', suppPayroll.payment_method]]
+          : []),
+        ...(suppPayroll.transaction_ref ? [['Reference No.', suppPayroll.transaction_ref]] : []),
+      ];
+      autoTable(doc, {
+        startY: y,
+        head: [['Field', 'Details']],
+        body: suppRows,
+        theme: 'striped', styles: { fontSize: 9 },
+        headStyles: { fillColor: [99, 102, 241] },
+        columnStyles: { 0: { fontStyle: 'bold', cellWidth: 50 } },
+      });
+      y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+    }
 
     if (payroll.status === 'paid') {
       const payDate = payroll.payment_date ? new Date(payroll.payment_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
@@ -205,9 +235,11 @@ export default function PayslipPage() {
         ...(payroll.bank_last4      ? [['Account',       `••••${payroll.bank_last4}`]] : []),
         ...(payroll.payment_notes   ? [['Remarks',       payroll.payment_notes]] : []),
       ];
+      doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(0, 0, 0);
+      doc.text('Payment Details (Regular)', 14, y + 6); y += 10;
       autoTable(doc, {
-        startY: y + 24,
-        head: [['Payment Details', '']],
+        startY: y,
+        head: [['Field', 'Details']],
         body: payRows,
         theme: 'striped', styles: { fontSize: 9 },
         headStyles: { fillColor: [22, 163, 74] },
@@ -225,15 +257,13 @@ export default function PayslipPage() {
 
   if (!user) return null;
   const emp = user.employee;
-  const totalHours = entries.filter(e => e.status === 'approved').reduce((s, e) => s + (e.adjusted_hours || e.total_hours), 0);
-  // Entries included in payroll (generated_at time) vs new entries after payroll
-  const payrollGeneratedAt = payroll?.created_at;
-  const includedEntries = payrollGeneratedAt
-    ? entries.filter(e => !e.created_at || new Date(e.created_at) <= new Date(payrollGeneratedAt))
-    : entries;
-  const newEntries = payrollGeneratedAt
-    ? entries.filter(e => e.created_at && new Date(e.created_at) > new Date(payrollGeneratedAt))
-    : [];
+
+  const summary = buildPayrollSummary(payrolls, entries);
+  const { regularPayroll, supplementPayroll, entriesWithStatus,
+          nextCycleHours, totalApprovedHours, overallStatus } = summary;
+  const payroll = regularPayroll as unknown as Payroll | null;
+  const newEntries = entriesWithStatus.filter(e => e.salaryStatus === 'next_cycle');
+  const totalHours = totalApprovedHours;
 
   return (
     <>
@@ -252,7 +282,7 @@ export default function PayslipPage() {
         <div className="card" style={{ padding: 0, marginBottom: 20 }}>
           <div style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
             {([
-              { key: 'payslip' as const, label: loading ? 'Payslip' : payroll ? (payroll.status === 'paid' ? '✓ Salary Paid' : '⏳ Salary Generated') : '📋 Not Generated' },
+              { key: 'payslip' as const, label: loading ? 'Payslip' : OVERALL_STATUS_LABEL[overallStatus] },
               { key: 'entries' as const, label: loading ? 'Work Entries' : `Work Entries${newEntries.length > 0 ? ` (+${newEntries.length} new)` : entries.length > 0 ? ` (${entries.length})` : ''}` },
             ] as const).map(t => (
               <button key={t.key} onClick={() => setActiveTab(t.key)}
@@ -291,13 +321,13 @@ export default function PayslipPage() {
                   <table className="data-table" style={{ fontSize: 13 }}>
                     <thead><tr><th>Date</th><th>Hours</th><th>Task Description</th><th>Entry Status</th><th>Salary</th></tr></thead>
                     <tbody>
-                      {entries.map(e => {
-                        const isNew = payrollGeneratedAt && e.created_at && new Date(e.created_at) > new Date(payrollGeneratedAt);
+                      {entriesWithStatus.map(e => {
+                        const isNew = e.salaryStatus === 'next_cycle';
                         return (
                           <tr key={e.id} style={{ background: isNew ? 'rgba(245,158,11,0.05)' : '' }}>
                             <td className="muted" style={{ whiteSpace: 'nowrap' }}>
                               {new Date(e.entry_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'short', year: 'numeric' })}
-                              {isNew && <span style={{ marginLeft: 6, fontSize: 10, background: 'var(--warning, #f59e0b)', color: '#fff', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>NEW</span>}
+                              {isNew && <span style={{ marginLeft: 6, fontSize: 10, background: '#f59e0b', color: '#fff', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>NEW</span>}
                             </td>
                             <td style={{ fontWeight: 600 }}>
                               {(e.adjusted_hours || e.total_hours).toFixed(2)}
@@ -308,13 +338,9 @@ export default function PayslipPage() {
                             <td className="muted">{e.task_description || '—'}</td>
                             <td><Badge status={e.status === 'approved' ? 'active' : e.status === 'rejected' ? 'inactive' : 'pending'}>{e.status === 'approved' ? '✓ Approved' : e.status === 'rejected' ? '✗ Rejected' : '⏳ Pending'}</Badge></td>
                             <td>
-                              {isNew
-                                ? <span style={{ fontSize: 12, color: 'var(--warning, #b45309)', fontWeight: 600 }}>Next Cycle</span>
-                                : !payroll
-                                ? <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Not Generated</span>
-                                : payroll.status === 'paid'
-                                ? <Badge status="active">✓ Paid</Badge>
-                                : <Badge status="pending">⏳ Unpaid</Badge>}
+                              <span style={{ fontSize: 12, fontWeight: 600, color: SALARY_STATUS_COLOR[e.salaryStatus] }}>
+                                {SALARY_STATUS_LABEL[e.salaryStatus]}
+                              </span>
                             </td>
                           </tr>
                         );
@@ -360,8 +386,8 @@ export default function PayslipPage() {
                   <div style={{ color: '#fff', fontWeight: 700, fontSize: 16 }}>{emp?.full_name || user.username}</div>
                   <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>{emp?.employee_code} · {emp?.department}</div>
                   <div style={{ marginTop: 6 }}>
-                    <Badge status={payroll.status}>
-                      {payroll.status === 'paid' ? '✓ Salary Paid' : payroll.status === 'generated' ? '⏳ Pending Payment' : '📋 Draft'}
+                    <Badge status={OVERALL_STATUS_BADGE[overallStatus] as 'active' | 'pending' | 'inactive'}>
+                      {OVERALL_STATUS_LABEL[overallStatus]}
                     </Badge>
                   </div>
                 </div>
@@ -450,6 +476,22 @@ export default function PayslipPage() {
                 <div style={{ fontSize: 13, color: 'var(--primary)', fontWeight: 600 }}>Net Pay (Take Home)</div>
                 <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--primary)' }}>{formatCurrency(payroll.net_pay)}</div>
               </div>
+
+              {/* ── Supplement notice ── */}
+              {supplementPayroll && (
+                <div style={{ padding: '14px 28px', background: 'rgba(99,102,241,0.06)', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                  <div>
+                    <span style={{ fontSize: 11, background: '#6366f1', color: '#fff', borderRadius: 4, padding: '1px 7px', fontWeight: 700, marginRight: 8 }}>SUPPLEMENT</span>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>Additional payroll for {nextCycleHours > 0 ? `${(totalApprovedHours - nextCycleHours).toFixed(2)} extra hrs` : 'new entries'}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <strong style={{ color: 'var(--primary)', fontSize: 16 }}>{formatCurrency(supplementPayroll.net_pay ?? 0)}</strong>
+                    <Badge status={supplementPayroll.status === 'paid' ? 'active' : 'pending'}>
+                      {supplementPayroll.status === 'paid' ? '✓ Paid' : '⏳ Unpaid'}
+                    </Badge>
+                  </div>
+                </div>
+              )}
 
               {/* ── Payment details ── */}
               {payroll.status === 'paid' && (

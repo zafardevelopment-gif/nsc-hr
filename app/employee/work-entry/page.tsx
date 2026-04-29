@@ -7,7 +7,13 @@ import { Card } from '@/components/ui/Card';
 import { UploadZone } from '@/components/ui/UploadZone';
 import { useUser } from '@/lib/hooks';
 import { calcHours, formatDate, getMonthOptions } from '@/lib/utils';
-import { WorkEntry } from '@/types';
+import { WorkEntry, Payroll } from '@/types';
+import {
+  buildPayrollSummary,
+  SALARY_STATUS_LABEL,
+  SALARY_STATUS_COLOR,
+  EntryRecord,
+} from '@/lib/payrollStatus';
 import toast from 'react-hot-toast';
 
 export default function WorkEntryPage() {
@@ -19,8 +25,9 @@ export default function WorkEntryPage() {
   const [proofUrl, setProofUrl]   = useState('');
   const [proofName, setProofName] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [entries, setEntries] = useState<WorkEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [entries, setEntries]   = useState<WorkEntry[]>([]);
+  const [payrolls, setPayrolls] = useState<Payroll[]>([]);
+  const [loading, setLoading]   = useState(true);
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -31,9 +38,13 @@ export default function WorkEntryPage() {
 
   async function loadEntries() {
     try {
-      const res = await fetch(`/api/work-entries?month=${selectedMonth}`);
-      const json = await res.json();
-      setEntries(json.data || []);
+      const [workRes, payRes] = await Promise.all([
+        fetch(`/api/work-entries?month=${selectedMonth}`),
+        fetch(`/api/payroll?month=${selectedMonth}`),
+      ]);
+      const [workJson, payJson] = await Promise.all([workRes.json(), payRes.json()]);
+      setEntries(workJson.data || []);
+      setPayrolls(payJson.data || []);
     } catch {}
     finally { setLoading(false); }
   }
@@ -77,6 +88,10 @@ export default function WorkEntryPage() {
   const approved = entries.filter(e => e.status === 'approved').reduce((s, e) => s + (e.adjusted_hours || e.total_hours), 0);
   const pending  = entries.filter(e => e.status === 'pending').reduce((s, e) => s + e.total_hours, 0);
   const [entrySearch, setEntrySearch] = useState('');
+
+  const { entriesWithStatus } = buildPayrollSummary(payrolls, entries as EntryRecord[]);
+  const annotatedMap = new Map(entriesWithStatus.map(e => [e.id, e]));
+
   const filteredEntries = entries.filter(e => !entrySearch || e.task_description?.toLowerCase().includes(entrySearch.toLowerCase()) || e.entry_date?.includes(entrySearch));
 
   if (!user) return null;
@@ -161,28 +176,38 @@ export default function WorkEntryPage() {
               ) : (
                 <div className="table-wrap">
                   <table className="data-table">
-                    <thead><tr><th>Date</th><th>Hours</th><th>Description</th><th>Status</th></tr></thead>
+                    <thead><tr><th>Date</th><th>Hours</th><th>Description</th><th>Status</th><th>Salary</th></tr></thead>
                     <tbody>
-                      {filteredEntries.map(e => (
-                        <React.Fragment key={e.id}>
-                          <tr>
-                            <td className="muted">{formatDate(e.entry_date)}</td>
-                            <td><strong style={{ color: 'var(--primary)' }}>{e.adjusted_hours || e.total_hours}h</strong></td>
-                            <td className="muted" style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.task_description}</td>
-                            <td><Badge status={e.status} dot /></td>
-                          </tr>
-                          {e.status === 'rejected' && e.admin_remark && (
+                      {filteredEntries.map(e => {
+                        const annotated = annotatedMap.get(e.id);
+                        return (
+                          <React.Fragment key={e.id}>
                             <tr>
-                              <td colSpan={4} style={{ padding: '0 12px 10px', paddingTop: 0 }}>
-                                <div style={{ background: '#fff1f0', border: '1px solid #ffccc7', borderRadius: 6, padding: '8px 12px', fontSize: 12, color: '#cf1322', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-                                  <span style={{ fontWeight: 700, flexShrink: 0 }}>Admin Remark:</span>
-                                  <span>{e.admin_remark}</span>
-                                </div>
+                              <td className="muted">{formatDate(e.entry_date)}</td>
+                              <td><strong style={{ color: 'var(--primary)' }}>{e.adjusted_hours || e.total_hours}h</strong></td>
+                              <td className="muted" style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.task_description}</td>
+                              <td><Badge status={e.status} dot /></td>
+                              <td>
+                                {annotated ? (
+                                  <span style={{ fontSize: 11, fontWeight: 600, color: SALARY_STATUS_COLOR[annotated.salaryStatus] }}>
+                                    {SALARY_STATUS_LABEL[annotated.salaryStatus]}
+                                  </span>
+                                ) : '—'}
                               </td>
                             </tr>
-                          )}
-                        </React.Fragment>
-                      ))}
+                            {e.status === 'rejected' && e.admin_remark && (
+                              <tr>
+                                <td colSpan={5} style={{ padding: '0 12px 10px', paddingTop: 0 }}>
+                                  <div style={{ background: '#fff1f0', border: '1px solid #ffccc7', borderRadius: 6, padding: '8px 12px', fontSize: 12, color: '#cf1322', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                                    <span style={{ fontWeight: 700, flexShrink: 0 }}>Admin Remark:</span>
+                                    <span>{e.admin_remark}</span>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
