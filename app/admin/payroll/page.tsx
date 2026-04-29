@@ -226,36 +226,48 @@ export default function PayrollPage() {
       y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
     }
 
-    // Salary breakdown
-    doc.setFontSize(11); doc.setFont('helvetica', 'bold');
+    // Salary breakdown — side-by-side earnings/deductions
+    doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(0, 0, 0);
     doc.text('Salary Breakdown', 14, y + 6); y += 10;
-    const earningsRows: string[][] = [
-      ['Basic Salary', formatCurrency(selectedPay.basic_salary)],
-      ...(selectedPay.hra           > 0 ? [['HRA',               formatCurrency(selectedPay.hra)]] : []),
-      ...(selectedPay.conveyance    > 0 ? [['Conveyance',        formatCurrency(selectedPay.conveyance)]] : []),
-      ...(selectedPay.overtime_pay  > 0 ? [['Overtime Pay',      formatCurrency(selectedPay.overtime_pay)]] : []),
-      ...(selectedPay.bonus         > 0 ? [['Bonus',             formatCurrency(selectedPay.bonus)]] : []),
+
+    const pdfEarnings: string[][] = [
+      ['Basic Salary',  formatCurrency(selectedPay.basic_salary)],
+      ['HRA',           formatCurrency(selectedPay.hra)],
+      ['Conveyance',    formatCurrency(selectedPay.conveyance)],
+      ...(selectedPay.overtime_pay    > 0 ? [['Overtime Pay',    formatCurrency(selectedPay.overtime_pay)]]    : []),
+      ...(selectedPay.bonus           > 0 ? [['Bonus',           formatCurrency(selectedPay.bonus)]]           : []),
       ...(selectedPay.other_allowance > 0 ? [['Other Allowance', formatCurrency(selectedPay.other_allowance)]] : []),
-      ['Gross Earnings', formatCurrency(selectedPay.gross_earnings)],
-      ...(selectedPay.pf_employee       > 0 ? [['− PF (Employee)',    formatCurrency(selectedPay.pf_employee)]] : []),
-      ...(selectedPay.professional_tax  > 0 ? [['− Professional Tax', formatCurrency(selectedPay.professional_tax)]] : []),
-      ...(selectedPay.advance_deduction > 0 ? [['− Advance Deduction',formatCurrency(selectedPay.advance_deduction)]] : []),
-      ...(selectedPay.other_deductions  > 0 ? [['− Other Deductions', formatCurrency(selectedPay.other_deductions)]] : []),
-      ...(selectedPay.leave_deductions  > 0 ? [['− Leave Deductions', formatCurrency(selectedPay.leave_deductions)]] : []),
     ];
+    const pdfDeductions: string[][] = [
+      ['PF (Employee)',     formatCurrency(selectedPay.pf_employee)],
+      ['Professional Tax',  formatCurrency(selectedPay.professional_tax)],
+      ['Advance Deduction', formatCurrency(selectedPay.advance_deduction)],
+      ...(selectedPay.other_deductions > 0 ? [['Other Deductions', formatCurrency(selectedPay.other_deductions)]] : []),
+      ...(selectedPay.leave_deductions > 0 ? [['Leave Deductions',  formatCurrency(selectedPay.leave_deductions)]]  : []),
+    ];
+    const pdfMaxRows = Math.max(pdfEarnings.length, pdfDeductions.length);
+    const pdfSideRows: string[][] = Array.from({ length: pdfMaxRows }, (_, i) => [
+      pdfEarnings[i]?.[0] ?? '', pdfEarnings[i]?.[1] ?? '',
+      pdfDeductions[i]?.[0] ?? '', pdfDeductions[i]?.[1] ?? '',
+    ]);
+    pdfSideRows.push(['GROSS EARNINGS', formatCurrency(selectedPay.gross_earnings), 'TOTAL DEDUCTIONS', formatCurrency(selectedPay.total_deductions)]);
+
     autoTable(doc, {
       startY: y,
-      head: [['Component', 'Amount']],
-      body: earningsRows,
-      foot: [['NET PAY (TAKE HOME)', formatCurrency(selectedPay.net_pay)]],
-      theme: 'striped', styles: { fontSize: 9 },
+      head: [['Earnings', 'Amount', 'Deductions', 'Amount']],
+      body: pdfSideRows,
+      foot: [['NET PAY (TAKE HOME)', formatCurrency(selectedPay.net_pay), '', '']],
+      theme: 'grid', styles: { fontSize: 9 },
       headStyles: { fillColor: [27, 168, 154] },
       footStyles: { fillColor: [230, 246, 245], textColor: [27, 168, 154], fontStyle: 'bold', fontSize: 10 },
       didParseCell: (data) => {
         if (data.section === 'body' && data.row.raw) {
-          const label = String((data.row.raw as string[])[0]);
-          if (label === 'Gross Earnings') { data.cell.styles.fontStyle = 'bold'; data.cell.styles.textColor = [22, 163, 74]; }
-          if (label.startsWith('−'))      { data.cell.styles.textColor = [220, 38, 38]; }
+          const row = data.row.raw as string[];
+          if (row[0] === 'GROSS EARNINGS' || row[2] === 'TOTAL DEDUCTIONS') {
+            data.cell.styles.fontStyle = 'bold';
+            if (data.column.index <= 1) data.cell.styles.textColor = [22, 163, 74];
+            else data.cell.styles.textColor = [220, 38, 38];
+          }
         }
       },
     });
@@ -526,17 +538,39 @@ export default function PayrollPage() {
             };
             return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-                {/* Employee header */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'var(--bg)', borderRadius: 10, padding: '12px 16px' }}>
-                  <Avatar name={emp?.full_name || ''} size="lg" />
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 16 }}>{emp?.full_name}</div>
-                    <div style={{ fontSize: 13, color: 'var(--text-2)' }}>{emp?.employee_code} · {emp?.department}</div>
+                {/* Employee header + details table */}
+                <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'var(--bg)', padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+                    <Avatar name={emp?.full_name || ''} size="lg" />
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 16 }}>{emp?.full_name}</div>
+                      <div style={{ fontSize: 13, color: 'var(--text-2)' }}>{emp?.employee_code} · {emp?.department}</div>
+                    </div>
+                    <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+                      <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 4 }}>{getPayrollMonthLabel(selectedPay.payroll_month)}</div>
+                      <Badge status={selectedPay.status} />
+                    </div>
                   </div>
-                  <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
-                    <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{getPayrollMonthLabel(selectedPay.payroll_month)}</div>
-                    <Badge status={selectedPay.status} />
-                  </div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ background: 'var(--primary)', color: '#fff' }}>
+                        <th style={{ padding: '7px 12px', textAlign: 'left', fontWeight: 600 }}>Field</th>
+                        <th style={{ padding: '7px 12px', textAlign: 'left', fontWeight: 600 }}>Value</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        { f: 'Employee Code', v: emp?.employee_code || '—' },
+                        { f: 'Department',    v: emp?.department || '—' },
+                        { f: 'Employee Type', v: emp?.emp_type || '—' },
+                      ].map((row, i) => (
+                        <tr key={row.f} style={{ background: i % 2 === 0 ? 'var(--bg)' : 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+                          <td style={{ padding: '7px 12px', color: 'var(--primary)', fontWeight: 500 }}>{row.f}</td>
+                          <td style={{ padding: '7px 12px' }}>{row.v}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
 
                 {/* Work entries */}
@@ -599,43 +633,63 @@ export default function PayrollPage() {
                   </div>
                 )}
 
-                {/* Salary breakdown */}
+                {/* Salary breakdown — side-by-side table */}
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>💰 Salary Breakdown</div>
                   <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-                    {[
-                      { l: 'Basic Salary',      v: selectedPay.basic_salary,      color: '' },
-                      ...(selectedPay.hra           > 0 ? [{ l: 'HRA',               v: selectedPay.hra,           color: '' }] : []),
-                      ...(selectedPay.conveyance    > 0 ? [{ l: 'Conveyance',        v: selectedPay.conveyance,    color: '' }] : []),
-                      ...(selectedPay.overtime_pay  > 0 ? [{ l: 'Overtime Pay',      v: selectedPay.overtime_pay,  color: 'var(--success)' }] : []),
-                      ...(selectedPay.bonus         > 0 ? [{ l: 'Bonus',             v: selectedPay.bonus,         color: 'var(--success)' }] : []),
-                      ...(selectedPay.other_allowance > 0 ? [{ l: 'Other Allowance', v: selectedPay.other_allowance, color: 'var(--success)' }] : []),
-                    ].map(r => (
-                      <div key={r.l} style={{ padding: '8px 14px', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
-                        <span style={{ color: 'var(--text-2)' }}>{r.l}</span>
-                        <span style={{ fontWeight: 600, color: r.color || 'var(--text-1)' }}>{formatCurrency(r.v)}</span>
-                      </div>
-                    ))}
-                    <div style={{ padding: '8px 14px', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', fontSize: 13, background: 'var(--bg)' }}>
-                      <span style={{ fontWeight: 700, color: 'var(--success)' }}>Gross Earnings</span>
-                      <strong style={{ color: 'var(--success)' }}>{formatCurrency(selectedPay.gross_earnings)}</strong>
-                    </div>
-                    {[
-                      ...(selectedPay.pf_employee       > 0 ? [{ l: 'PF (Employee)',    v: selectedPay.pf_employee }] : []),
-                      ...(selectedPay.professional_tax  > 0 ? [{ l: 'Professional Tax', v: selectedPay.professional_tax }] : []),
-                      ...(selectedPay.advance_deduction > 0 ? [{ l: 'Advance Deduction',v: selectedPay.advance_deduction }] : []),
-                      ...(selectedPay.other_deductions  > 0 ? [{ l: 'Other Deductions', v: selectedPay.other_deductions }] : []),
-                      ...(selectedPay.leave_deductions  > 0 ? [{ l: 'Leave Deductions', v: selectedPay.leave_deductions }] : []),
-                    ].map(r => (
-                      <div key={r.l} style={{ padding: '8px 14px', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
-                        <span style={{ color: 'var(--text-2)' }}>{r.l}</span>
-                        <span style={{ fontWeight: 600, color: 'var(--danger)' }}>−{formatCurrency(r.v)}</span>
-                      </div>
-                    ))}
-                    <div style={{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', background: 'var(--primary-light)', borderTop: '2px solid var(--primary)' }}>
-                      <span style={{ fontWeight: 700, color: 'var(--primary)', fontSize: 14 }}>Net Pay</span>
-                      <strong style={{ color: 'var(--primary)', fontSize: 18 }}>{formatCurrency(selectedPay.net_pay)}</strong>
-                    </div>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                      <thead>
+                        <tr style={{ background: 'var(--primary)', color: '#fff' }}>
+                          <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, width: '30%' }}>Earnings</th>
+                          <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, width: '20%' }}>Amount</th>
+                          <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, width: '30%' }}>Deductions</th>
+                          <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, width: '20%' }}>Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          const eRows = [
+                            { label: 'Basic Salary',   value: selectedPay.basic_salary },
+                            { label: 'HRA',            value: selectedPay.hra },
+                            { label: 'Conveyance',     value: selectedPay.conveyance },
+                            ...(selectedPay.overtime_pay    > 0 ? [{ label: 'Overtime Pay',    value: selectedPay.overtime_pay }]    : []),
+                            ...(selectedPay.bonus           > 0 ? [{ label: 'Bonus',           value: selectedPay.bonus }]           : []),
+                            ...(selectedPay.other_allowance > 0 ? [{ label: 'Other Allowance', value: selectedPay.other_allowance }] : []),
+                          ];
+                          const dRows = [
+                            { label: 'PF (Employee)',    value: selectedPay.pf_employee },
+                            { label: 'Professional Tax', value: selectedPay.professional_tax },
+                            { label: 'Advance Deduction',value: selectedPay.advance_deduction },
+                            ...(selectedPay.other_deductions > 0 ? [{ label: 'Other Deductions', value: selectedPay.other_deductions }] : []),
+                            ...(selectedPay.leave_deductions > 0 ? [{ label: 'Leave Deductions',  value: selectedPay.leave_deductions }]  : []),
+                          ];
+                          const maxR = Math.max(eRows.length, dRows.length);
+                          return Array.from({ length: maxR }, (_, i) => {
+                            const e = eRows[i]; const d = dRows[i];
+                            return (
+                              <tr key={i} style={{ background: i % 2 === 0 ? 'var(--bg)' : 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+                                <td style={{ padding: '7px 12px', color: 'var(--primary)', fontWeight: 500 }}>{e?.label ?? ''}</td>
+                                <td style={{ padding: '7px 12px', textAlign: 'right' }}>{e ? formatCurrency(e.value) : ''}</td>
+                                <td style={{ padding: '7px 12px', color: 'var(--primary)', fontWeight: 500 }}>{d?.label ?? ''}</td>
+                                <td style={{ padding: '7px 12px', textAlign: 'right' }}>{d ? formatCurrency(d.value) : ''}</td>
+                              </tr>
+                            );
+                          });
+                        })()}
+                        <tr style={{ borderTop: '2px solid var(--border)', background: 'var(--surface)' }}>
+                          <td style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--success)' }}>Gross Earnings</td>
+                          <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: 'var(--success)' }}>{formatCurrency(selectedPay.gross_earnings)}</td>
+                          <td style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--danger)' }}>Total Deductions</td>
+                          <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: 'var(--danger)' }}>{formatCurrency(selectedPay.total_deductions)}</td>
+                        </tr>
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ background: 'var(--primary-light)', borderTop: '2px solid var(--primary)' }}>
+                          <td colSpan={2} style={{ padding: '10px 12px', fontWeight: 700, color: 'var(--primary)', fontSize: 13 }}>NET PAY (TAKE HOME)</td>
+                          <td colSpan={2} style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: 'var(--primary)', fontSize: 16 }}>{formatCurrency(selectedPay.net_pay)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
                   </div>
                 </div>
 

@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { EmployeeTopbar } from '@/components/employee/EmployeeTopbar';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -10,36 +10,62 @@ import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+interface WorkEntry {
+  id: string;
+  entry_date: string;
+  total_hours: number;
+  adjusted_hours?: number;
+  task_description?: string;
+}
+
+interface Adjustment {
+  id: string;
+  adj_type: string;
+  amount: number;
+  reason?: string;
+  applied: boolean;
+}
+
+const ADJ_META: Record<string, { label: string; color: string; sign: string }> = {
+  bonus:     { label: 'Bonus',            color: 'var(--success)', sign: '+' },
+  overtime:  { label: 'Overtime Pay',     color: 'var(--success)', sign: '+' },
+  allowance: { label: 'Allowance',        color: 'var(--success)', sign: '+' },
+  deduction: { label: 'Deduction',        color: 'var(--danger)',  sign: '−' },
+  advance:   { label: 'Advance Recovery', color: 'var(--danger)',  sign: '−' },
+};
+
 export default function PayslipPage() {
   const { user } = useUser();
   const [month, setMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
-  const [payroll, setPayroll] = useState<Payroll | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [payroll, setPayroll]         = useState<Payroll | null>(null);
+  const [entries, setEntries]         = useState<WorkEntry[]>([]);
+  const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
+  const [loading, setLoading]         = useState(true);
   const monthOptions = getMonthOptions();
-  const payslipRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    async function load() {
-      setLoading(true);
-      try {
-        const res = await fetch(`/api/payroll?month=${month}`);
-        const json = await res.json();
-        setPayroll(json.data?.[0] || null);
-      } catch {}
-      finally { setLoading(false); }
-    }
-    load();
-  }, [month]);
+    if (!user) return;
+    setLoading(true);
+    Promise.all([
+      fetch(`/api/payroll?month=${month}`).then(r => r.json()),
+      fetch(`/api/work-entries?month=${month}&status=approved`).then(r => r.json()),
+      fetch(`/api/adjustments?month=${month}`).then(r => r.json()),
+    ]).then(([pay, work, adj]) => {
+      setPayroll(pay.data?.[0] || null);
+      setEntries(work.data || []);
+      setAdjustments(adj.data || []);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, [month, user]);
 
   function downloadPDF() {
     if (!payroll || !user) return;
     const emp = user.employee;
     const doc = new jsPDF();
 
-    // Header — white background with teal accent bar
+    // Header
     doc.setFillColor(255, 255, 255);
     doc.rect(0, 0, 210, 44, 'F');
     doc.setFillColor(27, 168, 154);
@@ -59,7 +85,7 @@ export default function PayslipPage() {
     doc.text(emp?.full_name || user.username, 204, 18, { align: 'right' });
     doc.text(`${emp?.employee_code || ''} · ${emp?.department || ''}`, 204, 28, { align: 'right' });
 
-    // Employee info
+    // Employee details table
     doc.setTextColor(0, 0, 0);
     doc.setFontSize(10);
     doc.text('Employee Details', 14, 56);
@@ -67,28 +93,31 @@ export default function PayslipPage() {
       startY: 60,
       head: [['Field', 'Value']],
       body: [
-        ['Name', emp?.full_name || user.username],
+        ['Name',          emp?.full_name || user.username],
         ['Employee Code', emp?.employee_code || '—'],
-        ['Department', emp?.department || '—'],
-        ['Designation', emp?.designation || '—'],
+        ['Department',    emp?.department || '—'],
+        ['Designation',   emp?.designation || '—'],
         ['Employee Type', emp?.emp_type || '—'],
       ],
       theme: 'striped', styles: { fontSize: 9 },
       headStyles: { fillColor: [27, 168, 154] },
     });
 
-    const finalY = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
+    let y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
 
-    // Earnings & Deductions
+    // Earnings & Deductions side-by-side
     autoTable(doc, {
-      startY: finalY,
+      startY: y,
       head: [['Earnings', 'Amount', 'Deductions', 'Amount']],
       body: [
-        ['Basic Salary', formatCurrency(payroll.basic_salary), 'PF (Employee)', formatCurrency(payroll.pf_employee)],
-        ['HRA', formatCurrency(payroll.hra), 'Professional Tax', formatCurrency(payroll.professional_tax)],
-        ['Conveyance', formatCurrency(payroll.conveyance), 'Advance Deduction', formatCurrency(payroll.advance_deduction)],
-        ...(payroll.overtime_pay ? [['Overtime', formatCurrency(payroll.overtime_pay), '', '']] : []),
-        ...(payroll.bonus ? [['Bonus', formatCurrency(payroll.bonus), '', '']] : []),
+        ['Basic Salary',    formatCurrency(payroll.basic_salary),       'PF (Employee)',      formatCurrency(payroll.pf_employee)],
+        ['HRA',             formatCurrency(payroll.hra),                 'Professional Tax',   formatCurrency(payroll.professional_tax)],
+        ['Conveyance',      formatCurrency(payroll.conveyance),          'Advance Deduction',  formatCurrency(payroll.advance_deduction)],
+        ...(payroll.overtime_pay    > 0 ? [['Overtime Pay',     formatCurrency(payroll.overtime_pay),    '', '']] : []),
+        ...(payroll.bonus           > 0 ? [['Bonus',            formatCurrency(payroll.bonus),           '', '']] : []),
+        ...(payroll.other_allowance > 0 ? [['Other Allowance',  formatCurrency(payroll.other_allowance), '', '']] : []),
+        ...(payroll.other_deductions > 0 ? [['', '', 'Other Deductions', formatCurrency(payroll.other_deductions)]] : []),
+        ...(payroll.leave_deductions > 0 ? [['', '', 'Leave Deductions', formatCurrency(payroll.leave_deductions)]] : []),
         ['', '', '', ''],
         ['GROSS EARNINGS', formatCurrency(payroll.gross_earnings), 'TOTAL DEDUCTIONS', formatCurrency(payroll.total_deductions)],
       ],
@@ -96,29 +125,64 @@ export default function PayslipPage() {
       headStyles: { fillColor: [27, 168, 154] },
     });
 
-    const finalY2 = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
+    y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+
+    // Work entries
+    if (entries.length > 0) {
+      const totalHours = entries.reduce((s, e) => s + (e.adjusted_hours || e.total_hours), 0);
+      doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(0, 0, 0);
+      doc.text('Approved Work Entries', 14, y + 6); y += 10;
+      autoTable(doc, {
+        startY: y,
+        head: [['Date', 'Hours', 'Task Description']],
+        body: entries.map(e => [
+          new Date(e.entry_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'short', year: 'numeric' }),
+          (e.adjusted_hours || e.total_hours).toFixed(2),
+          e.task_description || '—',
+        ]),
+        foot: [['', `Total: ${totalHours.toFixed(2)} hrs`, '']],
+        theme: 'grid', styles: { fontSize: 8 },
+        headStyles: { fillColor: [27, 168, 154] },
+        footStyles: { fillColor: [230, 246, 245], textColor: [13, 148, 136], fontStyle: 'bold' },
+      });
+      y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+    }
+
+    // Adjustments
+    if (adjustments.length > 0) {
+      doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(0, 0, 0);
+      doc.text('Adjustments', 14, y + 6); y += 10;
+      autoTable(doc, {
+        startY: y,
+        head: [['Type', 'Amount', 'Reason', 'Status']],
+        body: adjustments.map(a => [
+          a.adj_type.charAt(0).toUpperCase() + a.adj_type.slice(1),
+          ((['deduction','advance'].includes(a.adj_type) ? '−' : '+') + formatCurrency(a.amount)),
+          a.reason || '—',
+          a.applied ? 'Applied' : 'Pending',
+        ]),
+        theme: 'grid', styles: { fontSize: 8 },
+        headStyles: { fillColor: [27, 168, 154] },
+      });
+      y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+    }
 
     // Net Pay
     doc.setFillColor(230, 246, 245);
-    doc.rect(14, finalY2, 182, 18, 'F');
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(27, 168, 154);
-    doc.text('Net Pay (Take Home)', 18, finalY2 + 12);
-    doc.text(formatCurrency(payroll.net_pay), 196, finalY2 + 12, { align: 'right' });
+    doc.rect(14, y, 182, 18, 'F');
+    doc.setFontSize(12); doc.setFont('helvetica', 'bold'); doc.setTextColor(27, 168, 154);
+    doc.text('Net Pay (Take Home)', 18, y + 12);
+    doc.text(formatCurrency(payroll.net_pay), 196, y + 12, { align: 'right' });
 
     if (payroll.status === 'paid') {
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(100, 100, 100);
-      doc.text(`Payment Date: ${payroll.payment_date || '—'}`, 14, finalY2 + 28);
-      doc.text(`Method: ${payroll.payment_method || '—'}`, 80, finalY2 + 28);
-      doc.text(`Ref: ${payroll.transaction_ref || '—'}`, 140, finalY2 + 28);
+      doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(100, 100, 100);
+      doc.text(`Payment Date: ${payroll.payment_date || '—'}`, 14, y + 28);
+      doc.text(`Method: ${payroll.payment_method || '—'}`, 80, y + 28);
+      doc.text(`Ref: ${payroll.transaction_ref || '—'}`, 140, y + 28);
     }
 
     // Footer
-    doc.setFontSize(8);
-    doc.setTextColor(150, 150, 150);
+    doc.setFontSize(8); doc.setTextColor(150, 150, 150);
     doc.text('This is a computer-generated payslip. For queries, contact HR.', 105, 285, { align: 'center' });
 
     doc.save(`payslip-${month}-${emp?.full_name || user.username}.pdf`);
@@ -127,6 +191,7 @@ export default function PayslipPage() {
 
   if (!user) return null;
   const emp = user.employee;
+  const totalHours = entries.reduce((s, e) => s + (e.adjusted_hours || e.total_hours), 0);
 
   return (
     <>
@@ -150,101 +215,194 @@ export default function PayslipPage() {
             <div style={{ fontSize: 13, color: 'var(--text-2)' }}>Payroll has not been generated for this month yet.</div>
           </div>
         ) : (
-          <div className="payslip-paper" ref={payslipRef}>
-            {/* Header */}
-            <div className="payslip-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, color: '#fff', fontWeight: 800, flexShrink: 0 }}>﷼</div>
-                <div>
-                  <div style={{ color: '#fff', fontWeight: 800, fontSize: 20, marginBottom: 2 }}>NSC Employee</div>
-                  <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>Payslip · {getPayrollMonthLabel(month)}</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+            {/* ── Payslip Header ── */}
+            <div className="payslip-paper" style={{ padding: 0, overflow: 'hidden' }}>
+              <div className="payslip-header">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                  <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, color: '#fff', fontWeight: 800, flexShrink: 0 }}>﷼</div>
+                  <div>
+                    <div style={{ color: '#fff', fontWeight: 800, fontSize: 20, marginBottom: 2 }}>NSC Employee — Payslip</div>
+                    <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>{getPayrollMonthLabel(month)}</div>
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ color: '#fff', fontWeight: 700, fontSize: 16 }}>{emp?.full_name || user.username}</div>
+                  <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>{emp?.employee_code} · {emp?.department}</div>
+                  <div style={{ marginTop: 6 }}>
+                    <Badge status={payroll.status}>
+                      {payroll.status === 'paid' ? '✓ Salary Paid' : payroll.status === 'generated' ? '⏳ Pending Payment' : '📋 Draft'}
+                    </Badge>
+                  </div>
                 </div>
               </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ color: '#fff', fontWeight: 700, fontSize: 16 }}>{emp?.full_name || user.username}</div>
-                <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>{emp?.employee_code} · {emp?.department}</div>
-                <div style={{ marginTop: 6 }}>
-                  <Badge status={emp?.emp_type || ''}>{emp?.emp_type === 'permanent' ? 'Permanent' : 'Part-Time'}</Badge>
+
+              {/* ── Employee Details Table ── */}
+              <div style={{ padding: '20px 28px', borderBottom: '1px solid var(--border)' }}>
+                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Employee Details</div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: 'var(--primary)', color: '#fff' }}>
+                      <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600 }}>Field</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600 }}>Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      { f: 'Name',          v: emp?.full_name || user.username },
+                      { f: 'Employee Code', v: emp?.employee_code || '—' },
+                      { f: 'Department',    v: emp?.department || '—' },
+                      { f: 'Designation',   v: emp?.designation || '—' },
+                      { f: 'Employee Type', v: emp?.emp_type || '—' },
+                    ].map((row, i) => (
+                      <tr key={row.f} style={{ background: i % 2 === 0 ? 'var(--bg)' : 'var(--surface)' }}>
+                        <td style={{ padding: '8px 12px', color: 'var(--primary)', fontWeight: 500 }}>{row.f}</td>
+                        <td style={{ padding: '8px 12px' }}>{row.v}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* ── Earnings & Deductions ── */}
+              <div style={{ padding: '20px 28px', borderBottom: '1px solid var(--border)' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: 'var(--primary)', color: '#fff' }}>
+                      <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, width: '30%' }}>Earnings</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, width: '20%' }}>Amount</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, width: '30%' }}>Deductions</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, width: '20%' }}>Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      const earningsRows = [
+                        { label: 'Basic Salary',    value: payroll.basic_salary },
+                        { label: 'HRA',             value: payroll.hra },
+                        { label: 'Conveyance',      value: payroll.conveyance },
+                        ...(payroll.overtime_pay    > 0 ? [{ label: 'Overtime Pay',    value: payroll.overtime_pay }]    : []),
+                        ...(payroll.bonus           > 0 ? [{ label: 'Bonus',           value: payroll.bonus }]           : []),
+                        ...(payroll.other_allowance > 0 ? [{ label: 'Other Allowance', value: payroll.other_allowance }] : []),
+                      ];
+                      const deductionRows = [
+                        { label: 'PF (Employee)',    value: payroll.pf_employee },
+                        { label: 'Professional Tax', value: payroll.professional_tax },
+                        { label: 'Advance Deduction',value: payroll.advance_deduction },
+                        ...(payroll.other_deductions > 0 ? [{ label: 'Other Deductions', value: payroll.other_deductions }] : []),
+                        ...(payroll.leave_deductions > 0 ? [{ label: 'Leave Deductions',  value: payroll.leave_deductions }]  : []),
+                      ];
+                      const maxRows = Math.max(earningsRows.length, deductionRows.length);
+                      return Array.from({ length: maxRows }, (_, i) => {
+                        const e = earningsRows[i];
+                        const d = deductionRows[i];
+                        return (
+                          <tr key={i} style={{ background: i % 2 === 0 ? 'var(--bg)' : 'var(--surface)' }}>
+                            <td style={{ padding: '8px 12px', color: 'var(--primary)', fontWeight: 500 }}>{e?.label ?? ''}</td>
+                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>{e ? formatCurrency(e.value) : ''}</td>
+                            <td style={{ padding: '8px 12px', color: 'var(--primary)', fontWeight: 500 }}>{d?.label ?? ''}</td>
+                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>{d ? formatCurrency(d.value) : ''}</td>
+                          </tr>
+                        );
+                      });
+                    })()}
+                    <tr style={{ background: 'var(--surface)', borderTop: '2px solid var(--border)' }}>
+                      <td style={{ padding: '10px 12px', fontWeight: 700, color: 'var(--success)' }}>GROSS EARNINGS</td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: 'var(--success)' }}>{formatCurrency(payroll.gross_earnings)}</td>
+                      <td style={{ padding: '10px 12px', fontWeight: 700, color: 'var(--danger)' }}>TOTAL DEDUCTIONS</td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: 'var(--danger)' }}>{formatCurrency(payroll.total_deductions)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* ── Net Pay ── */}
+              <div style={{ background: 'var(--primary-light)', padding: '20px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', flexWrap: 'wrap', gap: 12 }}>
+                <div style={{ fontSize: 13, color: 'var(--primary)', fontWeight: 600 }}>Net Pay (Take Home)</div>
+                <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--primary)' }}>{formatCurrency(payroll.net_pay)}</div>
+              </div>
+
+              {/* ── Payment details ── */}
+              {payroll.status === 'paid' && (
+                <div className="payslip-payment-grid">
+                  {[
+                    { l: 'Payment Date', v: payroll.payment_date ? new Date(payroll.payment_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'long', year: 'numeric' }) : '—' },
+                    { l: 'Method',       v: payroll.payment_method || '—' },
+                    { l: 'Reference No', v: payroll.transaction_ref || '—' },
+                    { l: 'Account',      v: payroll.bank_last4 ? `••••${payroll.bank_last4}` : '—' },
+                  ].map(s => (
+                    <div key={s.l}>
+                      <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>{s.l}</div>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>{s.v}</div>
+                    </div>
+                  ))}
                 </div>
+              )}
+
+              {/* ── Footer note ── */}
+              <div style={{ padding: '14px 28px', borderTop: '1px solid var(--border)', fontSize: 12, color: 'var(--text-3)', fontStyle: 'italic', textAlign: 'center' }}>
+                This is a computer-generated payslip. For queries, contact HR at hr@nsc.com
               </div>
             </div>
 
-            {/* Earnings + Deductions */}
-            <div className="payslip-breakdown">
-              <div className="payslip-section">
-                <div style={{ fontWeight: 700, marginBottom: 14, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.5px', fontSize: 12 }}>Earnings</div>
-                {[
-                  { label: 'Basic Salary',       value: payroll.basic_salary },
-                  { label: 'HRA',                value: payroll.hra },
-                  { label: 'Conveyance',         value: payroll.conveyance },
-                  ...(payroll.overtime_pay ? [{ label: 'Overtime Pay', value: payroll.overtime_pay }] : []),
-                  ...(payroll.bonus ? [{ label: 'Performance Bonus', value: payroll.bonus }] : []),
-                  ...(payroll.other_allowance ? [{ label: 'Other Allowance', value: payroll.other_allowance }] : []),
-                ].map(e => (
-                  <div key={e.label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-                    <span style={{ color: 'var(--text-2)', fontSize: 14 }}>{e.label}</span>
-                    <span style={{ fontWeight: 600 }}>{formatCurrency(e.value)}</span>
-                  </div>
-                ))}
-                <div style={{ borderTop: '1px dashed var(--border)', paddingTop: 10, marginTop: 10, display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ fontWeight: 700, color: 'var(--success)' }}>Gross Earnings</span>
-                  <span style={{ fontWeight: 800, color: 'var(--success)', fontSize: 16 }}>{formatCurrency(payroll.gross_earnings)}</span>
+            {/* ── Work Entries ── */}
+            {entries.length > 0 && (
+              <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', fontWeight: 700, fontSize: 14, display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Approved Work Entries</span>
+                  <span style={{ color: 'var(--primary)', fontSize: 13 }}>{totalHours.toFixed(2)} hrs total</span>
                 </div>
-              </div>
-
-              <div className="payslip-section payslip-section-right">
-                <div style={{ fontWeight: 700, marginBottom: 14, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.5px', fontSize: 12 }}>Deductions</div>
-                {[
-                  { label: 'PF (Employee)',    value: payroll.pf_employee },
-                  { label: 'Professional Tax', value: payroll.professional_tax },
-                  ...(payroll.advance_deduction ? [{ label: 'Advance Deduction', value: payroll.advance_deduction }] : []),
-                  ...(payroll.leave_deductions  ? [{ label: 'Leave Deductions',  value: payroll.leave_deductions  }] : []),
-                  ...(payroll.other_deductions  ? [{ label: 'Other Deductions',  value: payroll.other_deductions  }] : []),
-                ].map(d => (
-                  <div key={d.label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-                    <span style={{ color: 'var(--text-2)', fontSize: 14 }}>{d.label}</span>
-                    <span style={{ fontWeight: 600, color: 'var(--danger)' }}>-{formatCurrency(d.value)}</span>
-                  </div>
-                ))}
-                <div style={{ borderTop: '1px dashed var(--border)', paddingTop: 10, marginTop: 10, display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ fontWeight: 700, color: 'var(--danger)' }}>Total Deductions</span>
-                  <span style={{ fontWeight: 800, color: 'var(--danger)', fontSize: 16 }}>{formatCurrency(payroll.total_deductions)}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Net Pay */}
-            <div style={{ background: 'var(--primary-light)', padding: '20px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', flexWrap: 'wrap', gap: 12 }}>
-              <div>
-                <div style={{ fontSize: 13, color: 'var(--primary)', fontWeight: 600, marginBottom: 2 }}>Net Pay (Take Home)</div>
-                <div style={{ fontSize: 32, fontWeight: 800, color: 'var(--primary)' }}>{formatCurrency(payroll.net_pay)}</div>
-              </div>
-              <Badge status={payroll.status}>
-                {payroll.status === 'paid' ? '✓ Salary Paid' : payroll.status === 'generated' ? '⏳ Pending Payment' : '📋 Draft'}
-              </Badge>
-            </div>
-
-            {/* Payment details */}
-            {payroll.status === 'paid' && (
-              <div className="payslip-payment-grid">
-                {[
-                  { l: 'Payment Date', v: payroll.payment_date ? new Date(payroll.payment_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'long', year: 'numeric' }) : '—' },
-                  { l: 'Method',       v: payroll.payment_method || '—' },
-                  { l: 'Reference No', v: payroll.transaction_ref || '—' },
-                  { l: 'Account',      v: payroll.bank_last4 ? `••••${payroll.bank_last4}` : '—' },
-                ].map(s => (
-                  <div key={s.l}>
-                    <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>{s.l}</div>
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>{s.v}</div>
-                  </div>
-                ))}
+                <table className="data-table" style={{ fontSize: 13 }}>
+                  <thead><tr><th>Date</th><th>Hours</th><th>Task Description</th></tr></thead>
+                  <tbody>
+                    {entries.map(e => (
+                      <tr key={e.id}>
+                        <td className="muted" style={{ whiteSpace: 'nowrap' }}>{new Date(e.entry_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                        <td style={{ fontWeight: 600 }}>
+                          {(e.adjusted_hours || e.total_hours).toFixed(2)}
+                          {e.adjusted_hours && e.adjusted_hours !== e.total_hours && (
+                            <span style={{ fontSize: 11, color: 'var(--text-3)', marginLeft: 4 }}>(orig: {e.total_hours.toFixed(2)})</span>
+                          )}
+                        </td>
+                        <td className="muted">{e.task_description || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: 'var(--primary-light)' }}>
+                      <td style={{ padding: '8px 16px', fontWeight: 700, color: 'var(--primary)' }}></td>
+                      <td style={{ padding: '8px 16px', fontWeight: 700, color: 'var(--primary)' }}>Total: {totalHours.toFixed(2)} hrs</td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
               </div>
             )}
 
-            {/* Footer note */}
-            <div style={{ padding: '14px 28px', borderTop: '1px solid var(--border)', fontSize: 12, color: 'var(--text-3)', fontStyle: 'italic', textAlign: 'center' }}>
-              This is a computer-generated payslip. For queries, contact HR at hr@nsc.com
-            </div>
+            {/* ── Adjustments ── */}
+            {adjustments.length > 0 && (
+              <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', fontWeight: 700, fontSize: 14 }}>Adjustments</div>
+                <table className="data-table" style={{ fontSize: 13 }}>
+                  <thead><tr><th>Type</th><th>Amount</th><th>Reason</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {adjustments.map(a => {
+                      const meta = ADJ_META[a.adj_type] || { label: a.adj_type, color: 'var(--text-1)', sign: '' };
+                      return (
+                        <tr key={a.id}>
+                          <td style={{ fontWeight: 600, color: meta.color }}>{meta.label}</td>
+                          <td style={{ fontWeight: 700, color: meta.color }}>{meta.sign}{formatCurrency(a.amount)}</td>
+                          <td className="muted">{a.reason || '—'}</td>
+                          <td><Badge status={a.applied ? 'active' : 'pending'}>{a.applied ? 'Applied' : 'Pending'}</Badge></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
           </div>
         )}
       </div>
