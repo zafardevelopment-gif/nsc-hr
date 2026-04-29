@@ -157,24 +157,31 @@ export default function PayrollPage() {
     const emp = selectedPay.employee as { full_name: string; employee_code: string; department: string; emp_type: string; salary_type?: string; hourly_rate?: number } | undefined;
     const doc = new jsPDF();
 
-    // Header bar
-    doc.setFillColor(15, 23, 42);
-    doc.rect(0, 0, 210, 38, 'F');
-    doc.setTextColor(255, 255, 255);
+    // Header — white background with teal accent bar
+    doc.setFillColor(255, 255, 255);
+    doc.rect(0, 0, 210, 44, 'F');
+    doc.setFillColor(27, 168, 154);
+    doc.rect(0, 0, 5, 44, 'F');
+    doc.setDrawColor(230, 246, 245);
+    doc.setLineWidth(0.5);
+    doc.line(0, 44, 210, 44);
+    try { doc.addImage('/nsc-logo.png', 'PNG', 12, 8, 26, 20); } catch {}
+    doc.setTextColor(27, 168, 154);
     doc.setFontSize(16); doc.setFont('helvetica', 'bold');
-    doc.text('NSC Employee — Payroll Details', 14, 16);
+    doc.text('NSC Employee — Payroll Details', 46, 18);
     doc.setFontSize(10); doc.setFont('helvetica', 'normal');
-    doc.text(`${getPayrollMonthLabel(selectedPay.payroll_month)}  ·  Status: ${selectedPay.status.toUpperCase()}`, 14, 28);
-    doc.text(`Generated: ${new Date().toLocaleDateString('en-SA')}`, 196, 28, { align: 'right' });
+    doc.setTextColor(100, 100, 100);
+    doc.text(`${getPayrollMonthLabel(selectedPay.payroll_month)}  ·  Status: ${selectedPay.status.toUpperCase()}`, 46, 30);
+    doc.text(`Generated: ${new Date().toLocaleDateString('en-SA')}`, 204, 30, { align: 'right' });
 
     // Employee info
     doc.setTextColor(0, 0, 0);
     autoTable(doc, {
-      startY: 46,
+      startY: 52,
       head: [['Employee', 'Code', 'Department', 'Type']],
       body: [[emp?.full_name || '—', emp?.employee_code || '—', emp?.department || '—', emp?.emp_type || '—']],
       theme: 'striped', styles: { fontSize: 9 },
-      headStyles: { fillColor: [59, 111, 232] },
+      headStyles: { fillColor: [27, 168, 154] },
     });
 
     let y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
@@ -194,8 +201,8 @@ export default function PayrollPage() {
         ]),
         foot: [['', `Total: ${totalHours.toFixed(2)} hrs`, '']],
         theme: 'grid', styles: { fontSize: 8 },
-        headStyles: { fillColor: [59, 111, 232] },
-        footStyles: { fillColor: [240, 244, 255], textColor: [30, 60, 180], fontStyle: 'bold' },
+        headStyles: { fillColor: [27, 168, 154] },
+        footStyles: { fillColor: [230, 246, 245], textColor: [13, 148, 136], fontStyle: 'bold' },
       });
       y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
     }
@@ -214,7 +221,7 @@ export default function PayrollPage() {
           a.applied ? 'Applied' : 'Pending',
         ]),
         theme: 'grid', styles: { fontSize: 8 },
-        headStyles: { fillColor: [59, 111, 232] },
+        headStyles: { fillColor: [27, 168, 154] },
       });
       y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
     }
@@ -242,8 +249,8 @@ export default function PayrollPage() {
       body: earningsRows,
       foot: [['NET PAY (TAKE HOME)', formatCurrency(selectedPay.net_pay)]],
       theme: 'striped', styles: { fontSize: 9 },
-      headStyles: { fillColor: [59, 111, 232] },
-      footStyles: { fillColor: [238, 243, 253], textColor: [45, 88, 204], fontStyle: 'bold', fontSize: 10 },
+      headStyles: { fillColor: [27, 168, 154] },
+      footStyles: { fillColor: [230, 246, 245], textColor: [27, 168, 154], fontStyle: 'bold', fontSize: 10 },
       didParseCell: (data) => {
         if (data.section === 'body' && data.row.raw) {
           const label = String((data.row.raw as string[])[0]);
@@ -268,7 +275,7 @@ export default function PayrollPage() {
           selectedPay.bank_last4 ? `••••${selectedPay.bank_last4}` : '—',
         ]],
         theme: 'striped', styles: { fontSize: 9 },
-        headStyles: { fillColor: [59, 111, 232] },
+        headStyles: { fillColor: [27, 168, 154] },
       });
     }
 

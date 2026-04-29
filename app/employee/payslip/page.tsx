@@ -39,25 +39,32 @@ export default function PayslipPage() {
     const emp = user.employee;
     const doc = new jsPDF();
 
-    // Header
-    doc.setFillColor(15, 23, 42);
-    doc.rect(0, 0, 210, 40, 'F');
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(18);
+    // Header — white background with teal accent bar
+    doc.setFillColor(255, 255, 255);
+    doc.rect(0, 0, 210, 44, 'F');
+    doc.setFillColor(27, 168, 154);
+    doc.rect(0, 0, 5, 44, 'F');
+    doc.setDrawColor(230, 246, 245);
+    doc.setLineWidth(0.5);
+    doc.line(0, 44, 210, 44);
+    try { doc.addImage('/nsc-logo.png', 'PNG', 12, 8, 26, 20); } catch {}
+    doc.setTextColor(27, 168, 154);
+    doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
-    doc.text('NSC Employee', 14, 18);
-    doc.setFontSize(11);
+    doc.text('NSC Employee — Payslip', 46, 18);
+    doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    doc.text(`Payslip — ${getPayrollMonthLabel(month)}`, 14, 28);
-    doc.text(emp?.full_name || user.username, 196, 18, { align: 'right' });
-    doc.text(`${emp?.employee_code || ''} · ${emp?.department || ''}`, 196, 28, { align: 'right' });
+    doc.setTextColor(100, 100, 100);
+    doc.text(`${getPayrollMonthLabel(month)}`, 46, 28);
+    doc.text(emp?.full_name || user.username, 204, 18, { align: 'right' });
+    doc.text(`${emp?.employee_code || ''} · ${emp?.department || ''}`, 204, 28, { align: 'right' });
 
     // Employee info
     doc.setTextColor(0, 0, 0);
     doc.setFontSize(10);
-    doc.text('Employee Details', 14, 52);
+    doc.text('Employee Details', 14, 56);
     autoTable(doc, {
-      startY: 56,
+      startY: 60,
       head: [['Field', 'Value']],
       body: [
         ['Name', emp?.full_name || user.username],
@@ -67,7 +74,7 @@ export default function PayslipPage() {
         ['Employee Type', emp?.emp_type || '—'],
       ],
       theme: 'striped', styles: { fontSize: 9 },
-      headStyles: { fillColor: [59, 111, 232] },
+      headStyles: { fillColor: [27, 168, 154] },
     });
 
     const finalY = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
@@ -86,17 +93,17 @@ export default function PayslipPage() {
         ['GROSS EARNINGS', formatCurrency(payroll.gross_earnings), 'TOTAL DEDUCTIONS', formatCurrency(payroll.total_deductions)],
       ],
       theme: 'grid', styles: { fontSize: 9 },
-      headStyles: { fillColor: [59, 111, 232] },
+      headStyles: { fillColor: [27, 168, 154] },
     });
 
     const finalY2 = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
 
     // Net Pay
-    doc.setFillColor(238, 243, 253);
+    doc.setFillColor(230, 246, 245);
     doc.rect(14, finalY2, 182, 18, 'F');
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(45, 88, 204);
+    doc.setTextColor(27, 168, 154);
     doc.text('Net Pay (Take Home)', 18, finalY2 + 12);
     doc.text(formatCurrency(payroll.net_pay), 196, finalY2 + 12, { align: 'right' });
 

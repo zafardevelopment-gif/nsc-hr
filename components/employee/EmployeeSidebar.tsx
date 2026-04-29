@@ -28,7 +28,12 @@ export function EmployeeSidebar({ user }: { user: User }) {
   return (
     <div className="sidebar">
       <div className="sidebar-logo">
-        <div className="sidebar-logo-icon">N</div>
+        <img
+          src="/nsc-logo.png"
+          alt="NSC"
+          style={{ height: 36, width: 'auto', objectFit: 'contain', flexShrink: 0 }}
+          onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+        />
         <div>
           <div className="sidebar-logo-text">NSC Employee</div>
           <div className="sidebar-logo-sub">Employee Portal</div>
