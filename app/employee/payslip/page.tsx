@@ -17,6 +17,7 @@ interface WorkEntry {
   adjusted_hours?: number;
   task_description?: string;
   status: string;
+  created_at?: string;
 }
 
 interface Adjustment {
@@ -226,12 +227,12 @@ export default function PayslipPage() {
   const emp = user.employee;
   const totalHours = entries.filter(e => e.status === 'approved').reduce((s, e) => s + (e.adjusted_hours || e.total_hours), 0);
   // Entries included in payroll (generated_at time) vs new entries after payroll
-  const payrollGeneratedAt = payroll?.updated_at || payroll?.created_at;
+  const payrollGeneratedAt = payroll?.created_at;
   const includedEntries = payrollGeneratedAt
-    ? entries.filter(e => new Date(e.entry_date + 'T23:59:59') <= new Date(payrollGeneratedAt))
+    ? entries.filter(e => !e.created_at || new Date(e.created_at) <= new Date(payrollGeneratedAt))
     : entries;
   const newEntries = payrollGeneratedAt
-    ? entries.filter(e => new Date(e.entry_date + 'T23:59:59') > new Date(payrollGeneratedAt))
+    ? entries.filter(e => e.created_at && new Date(e.created_at) > new Date(payrollGeneratedAt))
     : [];
 
   return (
@@ -291,7 +292,7 @@ export default function PayslipPage() {
                     <thead><tr><th>Date</th><th>Hours</th><th>Task Description</th><th>Entry Status</th><th>Salary</th></tr></thead>
                     <tbody>
                       {entries.map(e => {
-                        const isNew = payrollGeneratedAt && new Date(e.entry_date + 'T23:59:59') > new Date(payrollGeneratedAt);
+                        const isNew = payrollGeneratedAt && e.created_at && new Date(e.created_at) > new Date(payrollGeneratedAt);
                         return (
                           <tr key={e.id} style={{ background: isNew ? 'rgba(245,158,11,0.05)' : '' }}>
                             <td className="muted" style={{ whiteSpace: 'nowrap' }}>

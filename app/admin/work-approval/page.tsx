@@ -61,7 +61,8 @@ export default function WorkApprovalPage() {
         const map: Record<string, { status: string; updated_at?: string }> = {};
         for (const result of results) {
           for (const p of (result.data || [])) {
-            map[`${p.employee_id}_${p.payroll_month}`] = { status: p.status, updated_at: p.updated_at };
+            // Use created_at (when payroll was first generated) not updated_at (which changes on mark_paid)
+            map[`${p.employee_id}_${p.payroll_month}`] = { status: p.status, updated_at: p.created_at };
           }
         }
         setPayrollMap(map);
@@ -156,9 +157,9 @@ export default function WorkApprovalPage() {
                     const emp = e.employee as { full_name: string; employee_code: string } | undefined;
                     const month = e.entry_date?.slice(0, 7);
                     const payInfo = month ? payrollMap[`${e.employee_id}_${month}`] : undefined;
-                    // Entry is "new" if it was created/approved after payroll was last generated
-                    const isNewEntry = payInfo?.updated_at
-                      ? new Date(e.entry_date + 'T23:59:59') > new Date(payInfo.updated_at)
+                    // Entry is "new" if the work entry was created AFTER the payroll was generated
+                    const isNewEntry = payInfo?.updated_at && e.created_at
+                      ? new Date(e.created_at) > new Date(payInfo.updated_at)
                       : false;
                     return (
                       <tr key={e.id} style={{ background: selected?.id === e.id ? 'var(--primary-light)' : '' }}>

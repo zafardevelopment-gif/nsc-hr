@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { month, empId } = body;
+    const { month, empId, supplement, parentPayrollId, parentCreatedAt } = body;
     const db = createServerSupabase();
 
     // Get settings
@@ -58,91 +58,149 @@ export async function POST(req: NextRequest) {
     const results = [];
 
     for (const emp of employees) {
-      // Check if already exists
-      const { data: existing } = await db.from('NSC_HR_payroll')
-        .select('id,status').eq('employee_id', emp.id).eq('payroll_month', month).single();
+      if (supplement) {
+        // ── SUPPLEMENTAL PATH ──────────────────────────────────────────────
+        // Only process entries approved AFTER the paid payroll was generated.
+        // Never touch the existing paid record.
+        if (!parentCreatedAt) continue;
 
-      // Skip paid payrolls — never recalculate
-      if (existing?.status === 'paid') continue;
-
-      // Fetch ALL adjustments (applied + pending) for accurate totals
-      const { data: allAdjs } = await db.from('NSC_HR_adjustments')
-        .select('*').eq('employee_id', emp.id).eq('adj_month', month);
-      const pendingAdjs = allAdjs?.filter(a => !a.applied) || [];
-
-      const adjBonus    = (allAdjs?.filter(a => a.adj_type === 'bonus').reduce((s, a) => s + a.amount, 0) || 0);
-      const adjOvertime = (allAdjs?.filter(a => a.adj_type === 'overtime').reduce((s, a) => s + a.amount, 0) || 0);
-      const adjAdvance  = (allAdjs?.filter(a => a.adj_type === 'advance').reduce((s, a) => s + a.amount, 0) || 0);
-
-      let basicSalary = 0, overtimePay = adjOvertime, approvedHours = 0;
-
-      if (emp.emp_type === 'permanent' && emp.salary_type === 'monthly') {
-        basicSalary = emp.monthly_salary || 0;
-      } else if (emp.salary_type === 'hourly') {
         const [year, m] = month.split('-');
         const start = `${year}-${m}-01`;
         const end = new Date(parseInt(year), parseInt(m), 0).toISOString().split('T')[0];
 
-        const { data: entries } = await db.from('NSC_HR_work_entries')
+        // Fetch only new approved entries (created after the paid payroll's created_at)
+        const { data: newEntries } = await db.from('NSC_HR_work_entries')
           .select('total_hours, adjusted_hours')
           .eq('employee_id', emp.id)
           .eq('status', 'approved')
-          .gte('entry_date', start).lte('entry_date', end);
+          .gte('entry_date', start).lte('entry_date', end)
+          .gt('created_at', parentCreatedAt);
 
-        approvedHours = entries?.reduce((s, e) => s + (e.adjusted_hours || e.total_hours), 0) || 0;
-        basicSalary = approvedHours * (emp.hourly_rate || 0);
-      } else if (emp.salary_type === 'fixed' || emp.salary_type === 'monthly') {
-        basicSalary = emp.monthly_salary || 0;
-      }
+        if (!newEntries || newEntries.length === 0) continue;
 
-      const hra = emp.emp_type === 'permanent' ? basicSalary * hraRate : 0;
-      const conv = emp.emp_type === 'permanent' ? conveyance : 0;
-      const grossEarnings = basicSalary + hra + conv + overtimePay + adjBonus;
-      const totalDeductions = adjAdvance;
-      const netPay = grossEarnings - totalDeductions;
+        const supplementHours = newEntries.reduce((s, e) => s + (e.adjusted_hours || e.total_hours), 0);
+        const supplementBasic = supplementHours * (emp.hourly_rate || 0);
 
-      const payrollEntry = {
-        employee_id: emp.id,
-        payroll_month: month,
-        basic_salary: basicSalary,
-        hra,
-        conveyance: conv,
-        overtime_pay: overtimePay,
-        bonus: adjBonus,
-        advance_deduction: adjAdvance,
-        gross_earnings: grossEarnings,
-        total_deductions: totalDeductions,
-        net_pay: netPay,
-        approved_hours: approvedHours,
-        status: 'generated',
-        generated_by: session.id,
-        updated_at: new Date().toISOString(),
-      };
+        // Supplement record: only the delta (no HRA/conveyance — those were in regular)
+        const supplementEntry = {
+          employee_id: emp.id,
+          payroll_month: month,
+          payroll_type: 'supplement',
+          parent_payroll_id: parentPayrollId || null,
+          basic_salary: supplementBasic,
+          hra: 0,
+          conveyance: 0,
+          overtime_pay: 0,
+          bonus: 0,
+          advance_deduction: 0,
+          gross_earnings: supplementBasic,
+          total_deductions: 0,
+          net_pay: supplementBasic,
+          approved_hours: supplementHours,
+          status: 'generated',
+          generated_by: session.id,
+          updated_at: new Date().toISOString(),
+        };
 
-      if (existing) {
-        // Recalculate existing generated/draft payroll with latest hours + adjustments
-        const { data } = await db.from('NSC_HR_payroll')
-          .update(payrollEntry).eq('id', existing.id).select().single();
-        if (data) results.push(data);
+        // Upsert supplement record (in case Recalc is clicked again)
+        const { data: existingSupplement } = await db.from('NSC_HR_payroll')
+          .select('id').eq('employee_id', emp.id).eq('payroll_month', month).eq('payroll_type', 'supplement').maybeSingle();
+
+        if (existingSupplement) {
+          const { data } = await db.from('NSC_HR_payroll')
+            .update(supplementEntry).eq('id', existingSupplement.id).select().single();
+          if (data) results.push(data);
+        } else {
+          const { data } = await db.from('NSC_HR_payroll').insert(supplementEntry).select().single();
+          if (data) results.push(data);
+        }
       } else {
-        const { data } = await db.from('NSC_HR_payroll').insert(payrollEntry).select().single();
-        if (data) results.push(data);
-      }
+        // ── REGULAR PATH ───────────────────────────────────────────────────
+        const { data: existing } = await db.from('NSC_HR_payroll')
+          .select('id,status').eq('employee_id', emp.id).eq('payroll_month', month).eq('payroll_type', 'regular').maybeSingle();
 
-      // Mark any pending adjustments as applied
-      if (pendingAdjs.length > 0) {
-        await db.from('NSC_HR_adjustments')
-          .update({ applied: true, updated_at: new Date().toISOString() })
-          .in('id', pendingAdjs.map(a => a.id));
+        // Skip paid regular payrolls — never recalculate
+        if (existing?.status === 'paid') continue;
+
+        // Fetch ALL adjustments (applied + pending) for accurate totals
+        const { data: allAdjs } = await db.from('NSC_HR_adjustments')
+          .select('*').eq('employee_id', emp.id).eq('adj_month', month);
+        const pendingAdjs = allAdjs?.filter(a => !a.applied) || [];
+
+        const adjBonus    = (allAdjs?.filter(a => a.adj_type === 'bonus').reduce((s, a) => s + a.amount, 0) || 0);
+        const adjOvertime = (allAdjs?.filter(a => a.adj_type === 'overtime').reduce((s, a) => s + a.amount, 0) || 0);
+        const adjAdvance  = (allAdjs?.filter(a => a.adj_type === 'advance').reduce((s, a) => s + a.amount, 0) || 0);
+
+        let basicSalary = 0, overtimePay = adjOvertime, approvedHours = 0;
+
+        if (emp.emp_type === 'permanent' && emp.salary_type === 'monthly') {
+          basicSalary = emp.monthly_salary || 0;
+        } else if (emp.salary_type === 'hourly') {
+          const [year, m] = month.split('-');
+          const start = `${year}-${m}-01`;
+          const end = new Date(parseInt(year), parseInt(m), 0).toISOString().split('T')[0];
+
+          const { data: entries } = await db.from('NSC_HR_work_entries')
+            .select('total_hours, adjusted_hours')
+            .eq('employee_id', emp.id)
+            .eq('status', 'approved')
+            .gte('entry_date', start).lte('entry_date', end);
+
+          approvedHours = entries?.reduce((s, e) => s + (e.adjusted_hours || e.total_hours), 0) || 0;
+          basicSalary = approvedHours * (emp.hourly_rate || 0);
+        } else if (emp.salary_type === 'fixed' || emp.salary_type === 'monthly') {
+          basicSalary = emp.monthly_salary || 0;
+        }
+
+        const hra = emp.emp_type === 'permanent' ? basicSalary * hraRate : 0;
+        const conv = emp.emp_type === 'permanent' ? conveyance : 0;
+        const grossEarnings = basicSalary + hra + conv + overtimePay + adjBonus;
+        const totalDeductions = adjAdvance;
+        const netPay = grossEarnings - totalDeductions;
+
+        const payrollEntry = {
+          employee_id: emp.id,
+          payroll_month: month,
+          payroll_type: 'regular',
+          basic_salary: basicSalary,
+          hra,
+          conveyance: conv,
+          overtime_pay: overtimePay,
+          bonus: adjBonus,
+          advance_deduction: adjAdvance,
+          gross_earnings: grossEarnings,
+          total_deductions: totalDeductions,
+          net_pay: netPay,
+          approved_hours: approvedHours,
+          status: 'generated',
+          generated_by: session.id,
+          updated_at: new Date().toISOString(),
+        };
+
+        if (existing) {
+          const { data } = await db.from('NSC_HR_payroll')
+            .update(payrollEntry).eq('id', existing.id).select().single();
+          if (data) results.push(data);
+        } else {
+          const { data } = await db.from('NSC_HR_payroll').insert(payrollEntry).select().single();
+          if (data) results.push(data);
+        }
+
+        if (pendingAdjs.length > 0) {
+          await db.from('NSC_HR_adjustments')
+            .update({ applied: true, updated_at: new Date().toISOString() })
+            .in('id', pendingAdjs.map(a => a.id));
+        }
       }
     }
 
     await db.from('NSC_HR_activity_logs').insert({
-      user_id: session.id, action: 'GENERATE_PAYROLL',
-      details: { month, count: results.length },
+      user_id: session.id, action: supplement ? 'GENERATE_SUPPLEMENT_PAYROLL' : 'GENERATE_PAYROLL',
+      details: { month, count: results.length, supplement: !!supplement },
     });
 
-    return NextResponse.json({ data: results, message: `Payroll processed for ${results.length} employee${results.length !== 1 ? 's' : ''} (paid records skipped)` });
+    const label = supplement ? 'Supplemental payroll' : 'Payroll';
+    return NextResponse.json({ data: results, message: `${label} processed for ${results.length} employee${results.length !== 1 ? 's' : ''}` });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: 'Failed to generate payroll' }, { status: 500 });

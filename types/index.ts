@@ -92,6 +92,8 @@ export interface Payroll {
   net_pay: number;
   approved_hours: number;
   leave_deductions: number;
+  payroll_type?: 'regular' | 'supplement';
+  parent_payroll_id?: string;
   status: 'draft' | 'generated' | 'paid';
   payment_method?: string;
   transaction_ref?: string;

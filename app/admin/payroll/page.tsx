@@ -32,7 +32,7 @@ export default function PayrollPage() {
   const [showAdjModal, setShowAdjModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedPay, setSelectedPay] = useState<Payroll | null>(null);
-  const [detailEntries, setDetailEntries] = useState<{id:string;entry_date:string;total_hours:number;adjusted_hours?:number;task_description?:string;status:string}[]>([]);
+  const [detailEntries, setDetailEntries] = useState<{id:string;entry_date:string;total_hours:number;adjusted_hours?:number;task_description?:string;status:string;created_at?:string}[]>([]);
   const [detailAdjs, setDetailAdjs] = useState<{id:string;adj_type:string;amount:number;reason?:string;applied:boolean}[]>([]);
   const [payForm, setPayForm] = useState({ method: 'Bank Transfer', ref: '', date: new Date().toISOString().split('T')[0], notes: '', bank_last4: '' });
   const [adjForm, setAdjForm] = useState({ overtime_pay: '', bonus: '', advance_deduction: '', payment_notes: '' });
@@ -40,6 +40,8 @@ export default function PayrollPage() {
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  // Maps employeeId → { payrollId, payrollCreatedAt } for supplement generation
+  const [newEntryMap, setNewEntryMap] = useState<Map<string, { payrollId: string; payrollCreatedAt: string }>>(new Map());
   const PAGE_SIZE = 10;
 
   const monthOptions = getMonthOptions();
@@ -47,12 +49,36 @@ export default function PayrollPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [payRes, empRes] = await Promise.all([
+      const [payRes, empRes, workRes] = await Promise.all([
         fetch(`/api/payroll?month=${month}`).then(r => r.json()),
         fetch('/api/employees?active=true&limit=200').then(r => r.json()),
+        fetch(`/api/work-entries?month=${month}&status=approved&limit=500`).then(r => r.json()),
       ]);
-      setPayroll(payRes.data || []);
+      const payrollData: Payroll[] = payRes.data || [];
+      const workEntries: { employee_id: string; created_at?: string }[] = workRes.data || [];
+      setPayroll(payrollData);
       setAllEmployees(empRes.data || []);
+
+      // Find employees who have approved work entries created AFTER their payroll was generated
+      // Only look at 'regular' payroll records; skip employees who already have a supplement
+      const supplementEmpIds = new Set(payrollData.filter(p => p.payroll_type === 'supplement').map(p => p.employee_id));
+      const payrollByEmp = new Map<string, { id: string; created_at?: string; status: string }>();
+      for (const p of payrollData) {
+        if ((p.payroll_type ?? 'regular') === 'regular') {
+          payrollByEmp.set(p.employee_id, { id: p.id, created_at: p.created_at, status: p.status });
+        }
+      }
+      const newMap = new Map<string, { payrollId: string; payrollCreatedAt: string }>();
+      for (const e of workEntries) {
+        if (supplementEmpIds.has(e.employee_id)) continue; // supplement already generated
+        const pay = payrollByEmp.get(e.employee_id);
+        if (pay && pay.created_at && e.created_at) {
+          if (new Date(e.created_at) > new Date(pay.created_at)) {
+            newMap.set(e.employee_id, { payrollId: pay.id, payrollCreatedAt: pay.created_at });
+          }
+        }
+      }
+      setNewEntryMap(newMap);
     } catch { toast.error('Failed to load payroll'); }
     finally { setLoading(false); }
   }, [month]);
@@ -80,13 +106,16 @@ export default function PayrollPage() {
     }
   }
 
-  async function generateForEmployee(empId: string) {
+  async function generateForEmployee(empId: string, supplementInfo?: { payrollId: string; payrollCreatedAt: string }) {
     setGeneratingId(empId);
     try {
+      const body = supplementInfo
+        ? { month, empId, supplement: true, parentPayrollId: supplementInfo.payrollId, parentCreatedAt: supplementInfo.payrollCreatedAt }
+        : { month, empId };
       const res = await fetch('/api/payroll', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ month, empId }),
+        body: JSON.stringify(body),
       });
       const json = await res.json();
       if (json.error) throw new Error(json.error);
@@ -353,11 +382,40 @@ export default function PayrollPage() {
   }
 
   const total = payroll.reduce((s, p) => s + (p.net_pay || 0), 0);
-  const paid = payroll.filter(p => p.status === 'paid').length;
 
-  // Not-generated: active employees who have no payroll record this month
+  // Priority classification per employee:
+  // 1. Has new entries (approved after payroll generation) → counts as Not Generated
+  // 2. Payroll exists but unpaid → Unpaid
+  // 3. Payroll exists and paid (and no new entries) → Paid
   const generatedEmpIds = new Set(payroll.map(p => p.employee_id));
-  const notGeneratedEmployees = allEmployees.filter(e => !generatedEmpIds.has(e.id));
+
+  // Employees with no payroll at all
+  const noPayrollEmployees = allEmployees.filter(e => !generatedEmpIds.has(e.id));
+
+  // Employees who have payroll but also have new entries added after generation
+  // These are treated as "Not Generated" because the extra work isn't in the payroll yet
+  // Only regular (not supplement) payrolls that have new entries — supplements don't need recalc
+  const payrollWithNewEntries = payroll.filter(p => newEntryMap.has(p.employee_id) && (p.payroll_type ?? 'regular') === 'regular');
+
+  // "Not Generated" tab shows: truly no-payroll employees + paid employees with new entries
+  type NotGenItem =
+    | { kind: 'no-payroll'; emp: Employee }
+    | { kind: 'new-entry';  payroll: Payroll; emp: Employee };
+
+  const notGenItems: NotGenItem[] = [
+    ...noPayrollEmployees.map(e => ({ kind: 'no-payroll' as const, emp: e })),
+    ...payrollWithNewEntries.map(p => {
+      const emp = (p.employee as Employee | undefined) || allEmployees.find(e => e.id === p.employee_id)!;
+      return { kind: 'new-entry' as const, payroll: p, emp };
+    }),
+  ];
+
+  // Summary counts
+  const newEntryCount = payrollWithNewEntries.length;
+  const notGeneratedCount = noPayrollEmployees.length + newEntryCount;
+  // Unpaid: payroll exists, not paid, and NOT in new-entry bucket (those go to Not Generated)
+  const unpaid = payroll.filter(p => p.status !== 'paid' && !newEntryMap.has(p.employee_id)).length;
+  const paid = payroll.filter(p => p.status === 'paid' && !newEntryMap.has(p.employee_id)).length;
 
   const filtered = tab === 'generated'
     ? payroll.filter(p => {
@@ -366,9 +424,10 @@ export default function PayrollPage() {
         const emp = p.employee as { full_name: string; department: string; employee_code: string } | undefined;
         return emp?.full_name?.toLowerCase().includes(q) || emp?.department?.toLowerCase().includes(q) || emp?.employee_code?.toLowerCase().includes(q);
       })
-    : notGeneratedEmployees.filter(e => {
+    : notGenItems.filter(item => {
         if (!search) return true;
         const q = search.toLowerCase();
+        const e = item.emp;
         return e.full_name?.toLowerCase().includes(q) || e.department?.toLowerCase().includes(q) || e.employee_code?.toLowerCase().includes(q);
       });
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
@@ -401,17 +460,18 @@ export default function PayrollPage() {
       />
       <div className="page-content">
         {/* Summary banner */}
-        <div style={{ background: 'var(--sidebar-2)', borderRadius: 'var(--radius)', padding: '20px 24px', display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 24 }}>
+        <div style={{ background: 'var(--sidebar-2)', borderRadius: 'var(--radius)', padding: '20px 24px', display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 16 }}>
           {[
-            { l: 'Total Payroll',    v: formatCurrency(total) },
-            { l: 'Generated',        v: payroll.length },
-            { l: 'Paid',             v: paid },
-            { l: 'Pending',          v: payroll.length - paid },
-            { l: 'Not Generated',    v: notGeneratedEmployees.length },
+            { l: 'Total Payroll',  v: formatCurrency(total),   warn: false },
+            { l: 'Generated',      v: payroll.length,          warn: false },
+            { l: 'Paid',           v: paid,                    warn: false },
+            { l: 'Unpaid',         v: unpaid,                  warn: unpaid > 0 },
+            { l: 'Not Generated',  v: notGeneratedCount,       warn: notGeneratedCount > 0 },
+            { l: 'New Entries',    v: newEntryCount,           warn: newEntryCount > 0 },
           ].map(s => (
             <div key={s.l}>
-              <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, marginBottom: 4 }}>{s.l}</div>
-              <div style={{ color: '#fff', fontSize: 26, fontWeight: 800 }}>{s.v}</div>
+              <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 11, marginBottom: 4 }}>{s.l}</div>
+              <div style={{ color: s.warn ? '#fbbf24' : '#fff', fontSize: 24, fontWeight: 800 }}>{s.v}</div>
             </div>
           ))}
         </div>
@@ -430,7 +490,7 @@ export default function PayrollPage() {
               style={{ padding: '9px 18px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 13,
                 background: tab === 'not-generated' ? 'var(--danger)' : 'transparent',
                 color: tab === 'not-generated' ? '#fff' : 'var(--text-2)' }}>
-              ✗ Not Generated ({notGeneratedEmployees.length})
+              ✗ Not Generated ({notGeneratedCount})
             </button>
           </div>
           <select className="form-select" style={{ width: 'auto' }} value={month} onChange={e => { setMonth(e.target.value); setPage(1); }}>
@@ -444,20 +504,26 @@ export default function PayrollPage() {
             {tab === 'not-generated' ? (
               <table className="data-table">
                 <thead>
-                  <tr><th>Employee</th><th>Type</th><th>Department</th><th>Salary</th><th>Action</th></tr>
+                  <tr><th>Employee</th><th>Type</th><th>Department</th><th>Salary</th><th>Reason</th><th>Action</th></tr>
                 </thead>
                 <tbody>
                   {loading ? (
-                    <tr><td colSpan={5}><div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>Loading...</div></td></tr>
-                  ) : (paged as Employee[]).length === 0 ? (
-                    <tr><td colSpan={5}><div className="empty-state"><div className="empty-icon">✅</div><div>All employees have payroll generated for this month</div></div></td></tr>
-                  ) : (paged as Employee[]).map(e => (
-                    <tr key={e.id}>
+                    <tr><td colSpan={6}><div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>Loading...</div></td></tr>
+                  ) : (paged as NotGenItem[]).length === 0 ? (
+                    <tr><td colSpan={6}><div className="empty-state"><div className="empty-icon">✅</div><div>All employees have payroll generated for this month</div></div></td></tr>
+                  ) : (paged as NotGenItem[]).map(item => {
+                    const e = item.emp;
+                    const isNewEntry = item.kind === 'new-entry';
+                    return (
+                    <tr key={e.id} style={{ background: isNewEntry ? 'rgba(245,158,11,0.06)' : '' }}>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           <Avatar name={e.full_name} size="sm" />
                           <div>
-                            <div style={{ fontWeight: 600 }}>{e.full_name}</div>
+                            <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                              {e.full_name}
+                              {isNewEntry && <span style={{ fontSize: 10, background: '#f59e0b', color: '#fff', borderRadius: 3, padding: '1px 5px', fontWeight: 700 }}>⚠ NEW ENTRY</span>}
+                            </div>
                             <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{e.employee_code}</div>
                           </div>
                         </div>
@@ -466,13 +532,26 @@ export default function PayrollPage() {
                       <td className="muted">{e.department}</td>
                       <td className="muted">{e.salary_type === 'hourly' ? `${formatCurrency(e.hourly_rate || 0)}/hr` : formatCurrency(e.monthly_salary || 0)}</td>
                       <td>
+                        {isNewEntry
+                          ? <span style={{ fontSize: 12, color: '#b45309', fontWeight: 600 }}>Approved entries after payroll ({item.payroll.status})</span>
+                          : <span style={{ fontSize: 12, color: 'var(--text-2)' }}>No payroll generated</span>}
+                      </td>
+                      <td>
                         <Button variant="success" size="xs" loading={generatingId === e.id}
-                          onClick={() => generateForEmployee(e.id)}>
-                          ⚡ Generate
+                          onClick={() => {
+                            if (isNewEntry) {
+                              const info = newEntryMap.get(e.id);
+                              generateForEmployee(e.id, info);
+                            } else {
+                              generateForEmployee(e.id);
+                            }
+                          }}>
+                          {isNewEntry ? '↻ Generate Supplement' : '⚡ Generate'}
                         </Button>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             ) : (
@@ -487,13 +566,21 @@ export default function PayrollPage() {
                   <tr><td colSpan={8}><div className="empty-state"><div className="empty-icon">💰</div><div>No payroll generated for this month</div><div style={{ fontSize: 13 }}>Click "Auto-Generate All" to create payroll</div></div></td></tr>
                 ) : (paged as Payroll[]).map(p => {
                   const emp = p.employee as { full_name: string; emp_type: string; department: string } | undefined;
+                  const isRegular = (p.payroll_type ?? 'regular') === 'regular';
+                  const isSupplement = p.payroll_type === 'supplement';
+                  // Show ⚠ badge only on regular records that still have new entries (no supplement yet)
+                  const hasNewEntries = isRegular && newEntryMap.has(p.employee_id);
                   return (
-                    <tr key={p.id}>
+                    <tr key={p.id} style={{ background: isSupplement ? 'rgba(99,102,241,0.05)' : hasNewEntries ? 'rgba(245,158,11,0.06)' : '' }}>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           <Avatar name={emp?.full_name || ''} size="sm" />
                           <div>
-                            <div style={{ fontWeight: 600 }}>{emp?.full_name}</div>
+                            <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                              {emp?.full_name}
+                              {isSupplement && <span style={{ fontSize: 10, background: '#6366f1', color: '#fff', borderRadius: 3, padding: '1px 5px', fontWeight: 700 }}>SUPPLEMENT</span>}
+                              {hasNewEntries && <span title="New work entries added after payroll generation" style={{ fontSize: 10, background: '#f59e0b', color: '#fff', borderRadius: 3, padding: '1px 5px', fontWeight: 700 }}>⚠ NEW ENTRY</span>}
+                            </div>
                             <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{emp?.emp_type === 'part-time' ? 'Part-Time' : emp?.emp_type === 'permanent' ? 'Permanent' : emp?.emp_type} · {emp?.department}</div>
                           </div>
                         </div>
@@ -683,21 +770,36 @@ export default function PayrollPage() {
                   ) : (
                     <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', maxHeight: 200, overflowY: 'auto' }}>
                       <table className="data-table" style={{ fontSize: 12, margin: 0 }}>
-                        <thead><tr><th>Date</th><th>Hours</th><th>Task</th><th>Status</th></tr></thead>
+                        <thead><tr><th>Date</th><th>Hours</th><th>Task</th><th>Status</th><th>Salary</th></tr></thead>
                         <tbody>
-                          {detailEntries.map(e => (
-                            <tr key={e.id}>
-                              <td className="muted" style={{ whiteSpace: 'nowrap' }}>{new Date(e.entry_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'short' })}</td>
+                          {detailEntries.map(e => {
+                            const isNew = selectedPay.created_at && e.created_at
+                              ? new Date(e.created_at) > new Date(selectedPay.created_at)
+                              : false;
+                            return (
+                            <tr key={e.id} style={{ background: isNew ? 'rgba(245,158,11,0.05)' : '' }}>
+                              <td className="muted" style={{ whiteSpace: 'nowrap' }}>
+                                {new Date(e.entry_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'short' })}
+                                {isNew && <span style={{ marginLeft: 5, fontSize: 10, background: '#f59e0b', color: '#fff', borderRadius: 3, padding: '1px 4px', fontWeight: 700 }}>NEW</span>}
+                              </td>
                               <td style={{ fontWeight: 600 }}>
                                 {(e.adjusted_hours || e.total_hours).toFixed(2)}
                                 {e.adjusted_hours && e.adjusted_hours !== e.total_hours && (
                                   <span style={{ fontSize: 10, color: 'var(--text-3)', marginLeft: 4 }}>({e.total_hours.toFixed(2)} orig)</span>
                                 )}
                               </td>
-                              <td className="muted" style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.task_description || '—'}</td>
+                              <td className="muted" style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.task_description || '—'}</td>
                               <td><Badge status={e.status === 'approved' ? 'active' : e.status === 'rejected' ? 'inactive' : 'pending'}>{e.status === 'approved' ? '✓' : e.status === 'rejected' ? '✗' : '⏳'}</Badge></td>
+                              <td>
+                                {isNew
+                                  ? <span style={{ fontSize: 11, color: '#b45309', fontWeight: 600 }}>Next Cycle</span>
+                                  : selectedPay.status === 'paid'
+                                  ? <Badge status="active">✓ Paid</Badge>
+                                  : <Badge status="pending">⏳ Unpaid</Badge>}
+                              </td>
                             </tr>
-                          ))}
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>

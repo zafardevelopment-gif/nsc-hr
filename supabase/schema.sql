@@ -118,11 +118,13 @@ CREATE TABLE IF NOT EXISTS "NSC_HR_payroll" (
   payment_date    DATE,
   payment_notes   TEXT,
   bank_last4      VARCHAR(4),
+  payroll_type    VARCHAR(20) NOT NULL DEFAULT 'regular' CHECK (payroll_type IN ('regular', 'supplement')),
+  parent_payroll_id UUID REFERENCES "NSC_HR_payroll"(id) ON DELETE SET NULL,
   generated_by    UUID REFERENCES "NSC_HR_users"(id),
   paid_by         UUID REFERENCES "NSC_HR_users"(id),
   created_at      TIMESTAMPTZ DEFAULT NOW(),
   updated_at      TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE (employee_id, payroll_month)
+  UNIQUE (employee_id, payroll_month, payroll_type)
 );
 
 -- ─── Notifications ───
