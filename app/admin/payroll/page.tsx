@@ -14,11 +14,16 @@ import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+interface Employee { id: string; employee_code: string; full_name: string; department: string; emp_type: string; salary_type?: string; monthly_salary?: number; hourly_rate?: number; }
+
 export default function PayrollPage() {
   const { user } = useUser();
+  const [tab, setTab] = useState<'generated' | 'not-generated'>('generated');
   const [payroll, setPayroll] = useState<Payroll[]>([]);
+  const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [month, setMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -42,14 +47,18 @@ export default function PayrollPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/payroll?month=${month}`);
-      const json = await res.json();
-      setPayroll(json.data || []);
+      const [payRes, empRes] = await Promise.all([
+        fetch(`/api/payroll?month=${month}`).then(r => r.json()),
+        fetch('/api/employees?active=true&limit=200').then(r => r.json()),
+      ]);
+      setPayroll(payRes.data || []);
+      setAllEmployees(empRes.data || []);
     } catch { toast.error('Failed to load payroll'); }
     finally { setLoading(false); }
   }, [month]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { setPage(1); setSearch(''); }, [tab, month]);
 
   async function generateAll() {
     setGenerating(true);
@@ -62,11 +71,31 @@ export default function PayrollPage() {
       const json = await res.json();
       if (json.error) throw new Error(json.error);
       toast.success(json.message);
+      setTab('generated');
       load();
     } catch (e: unknown) {
       toast.error((e as Error).message);
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function generateForEmployee(empId: string) {
+    setGeneratingId(empId);
+    try {
+      const res = await fetch('/api/payroll', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ month, empId }),
+      });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      toast.success(json.message || 'Payroll generated');
+      load();
+    } catch (e: unknown) {
+      toast.error((e as Error).message);
+    } finally {
+      setGeneratingId(null);
     }
   }
 
@@ -314,12 +343,22 @@ export default function PayrollPage() {
   const total = payroll.reduce((s, p) => s + (p.net_pay || 0), 0);
   const paid = payroll.filter(p => p.status === 'paid').length;
 
-  const filtered = payroll.filter(p => {
-    if (!search) return true;
-    const q = search.toLowerCase();
-    const emp = p.employee as { full_name: string; department: string; employee_code: string } | undefined;
-    return emp?.full_name?.toLowerCase().includes(q) || emp?.department?.toLowerCase().includes(q) || emp?.employee_code?.toLowerCase().includes(q);
-  });
+  // Not-generated: active employees who have no payroll record this month
+  const generatedEmpIds = new Set(payroll.map(p => p.employee_id));
+  const notGeneratedEmployees = allEmployees.filter(e => !generatedEmpIds.has(e.id));
+
+  const filtered = tab === 'generated'
+    ? payroll.filter(p => {
+        if (!search) return true;
+        const q = search.toLowerCase();
+        const emp = p.employee as { full_name: string; department: string; employee_code: string } | undefined;
+        return emp?.full_name?.toLowerCase().includes(q) || emp?.department?.toLowerCase().includes(q) || emp?.employee_code?.toLowerCase().includes(q);
+      })
+    : notGeneratedEmployees.filter(e => {
+        if (!search) return true;
+        const q = search.toLowerCase();
+        return e.full_name?.toLowerCase().includes(q) || e.department?.toLowerCase().includes(q) || e.employee_code?.toLowerCase().includes(q);
+      });
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
@@ -350,12 +389,13 @@ export default function PayrollPage() {
       />
       <div className="page-content">
         {/* Summary banner */}
-        <div style={{ background: 'var(--sidebar-2)', borderRadius: 'var(--radius)', padding: '20px 24px', display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 24 }}>
+        <div style={{ background: 'var(--sidebar-2)', borderRadius: 'var(--radius)', padding: '20px 24px', display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 24 }}>
           {[
-            { l: 'Total Payroll', v: formatCurrency(total) },
-            { l: 'Employees',     v: payroll.length },
-            { l: 'Paid',          v: paid },
-            { l: 'Pending',       v: payroll.length - paid },
+            { l: 'Total Payroll',    v: formatCurrency(total) },
+            { l: 'Generated',        v: payroll.length },
+            { l: 'Paid',             v: paid },
+            { l: 'Pending',          v: payroll.length - paid },
+            { l: 'Not Generated',    v: notGeneratedEmployees.length },
           ].map(s => (
             <div key={s.l}>
               <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, marginBottom: 4 }}>{s.l}</div>
@@ -364,8 +404,23 @@ export default function PayrollPage() {
           ))}
         </div>
 
-        {/* Filters */}
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        {/* Tabs + Filters */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {/* Tab buttons */}
+          <div className="card" style={{ padding: 0, display: 'flex', overflow: 'hidden', flexShrink: 0 }}>
+            <button onClick={() => setTab('generated')}
+              style={{ padding: '9px 18px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 13,
+                background: tab === 'generated' ? 'var(--primary)' : 'transparent',
+                color: tab === 'generated' ? '#fff' : 'var(--text-2)' }}>
+              ✓ Generated ({payroll.length})
+            </button>
+            <button onClick={() => setTab('not-generated')}
+              style={{ padding: '9px 18px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 13,
+                background: tab === 'not-generated' ? 'var(--danger)' : 'transparent',
+                color: tab === 'not-generated' ? '#fff' : 'var(--text-2)' }}>
+              ✗ Not Generated ({notGeneratedEmployees.length})
+            </button>
+          </div>
           <select className="form-select" style={{ width: 'auto' }} value={month} onChange={e => { setMonth(e.target.value); setPage(1); }}>
             {monthOptions.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
@@ -374,6 +429,41 @@ export default function PayrollPage() {
 
         <div className="card" style={{ overflow: 'hidden' }}>
           <div className="table-wrap" style={{ overflowX: 'auto' }}>
+            {tab === 'not-generated' ? (
+              <table className="data-table">
+                <thead>
+                  <tr><th>Employee</th><th>Type</th><th>Department</th><th>Salary</th><th>Action</th></tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr><td colSpan={5}><div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>Loading...</div></td></tr>
+                  ) : (paged as Employee[]).length === 0 ? (
+                    <tr><td colSpan={5}><div className="empty-state"><div className="empty-icon">✅</div><div>All employees have payroll generated for this month</div></div></td></tr>
+                  ) : (paged as Employee[]).map(e => (
+                    <tr key={e.id}>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <Avatar name={e.full_name} size="sm" />
+                          <div>
+                            <div style={{ fontWeight: 600 }}>{e.full_name}</div>
+                            <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{e.employee_code}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td><Badge status="pending">{e.emp_type === 'part-time' ? 'Part-Time' : 'Permanent'}</Badge></td>
+                      <td className="muted">{e.department}</td>
+                      <td className="muted">{e.salary_type === 'hourly' ? `${formatCurrency(e.hourly_rate || 0)}/hr` : formatCurrency(e.monthly_salary || 0)}</td>
+                      <td>
+                        <Button variant="success" size="xs" loading={generatingId === e.id}
+                          onClick={() => generateForEmployee(e.id)}>
+                          ⚡ Generate
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
             <table className="data-table">
               <thead>
                 <tr><th>Employee</th><th>Base</th><th>OT</th><th>Bonus</th><th>Deductions</th><th>Net Pay</th><th>Status</th><th>Actions</th></tr>
@@ -381,9 +471,9 @@ export default function PayrollPage() {
               <tbody>
                 {loading ? (
                   <tr><td colSpan={8}><div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>Loading...</div></td></tr>
-                ) : paged.length === 0 ? (
+                ) : (paged as Payroll[]).length === 0 ? (
                   <tr><td colSpan={8}><div className="empty-state"><div className="empty-icon">💰</div><div>No payroll generated for this month</div><div style={{ fontSize: 13 }}>Click "Auto-Generate All" to create payroll</div></div></td></tr>
-                ) : paged.map(p => {
+                ) : (paged as Payroll[]).map(p => {
                   const emp = p.employee as { full_name: string; emp_type: string; department: string } | undefined;
                   return (
                     <tr key={p.id}>
@@ -412,7 +502,7 @@ export default function PayrollPage() {
                           <Button variant="ghost" size="xs" onClick={async () => {
                             setSelectedPay(p);
                             const [wRes, aRes] = await Promise.all([
-                              fetch(`/api/work-entries?empId=${p.employee_id}&month=${p.payroll_month}&status=approved`).then(r => r.json()),
+                              fetch(`/api/work-entries?empId=${p.employee_id}&month=${p.payroll_month}`).then(r => r.json()),
                               fetch(`/api/adjustments?empId=${p.employee_id}&month=${p.payroll_month}`).then(r => r.json()),
                             ]);
                             setDetailEntries(wRes.data || []);
@@ -429,6 +519,7 @@ export default function PayrollPage() {
                 })}
               </tbody>
             </table>
+            )}
           </div>
           <Pagination page={page} totalPages={totalPages} total={filtered.length} pageSize={PAGE_SIZE} onChange={setPage} label="records" />
         </div>
@@ -524,7 +615,7 @@ export default function PayrollPage() {
         >
           {selectedPay && (() => {
             const emp = selectedPay.employee as { full_name: string; employee_code: string; department: string; emp_type: string; salary_type?: string; hourly_rate?: number } | undefined;
-            const totalHours = detailEntries.reduce((s, e) => s + (e.adjusted_hours || e.total_hours), 0);
+            const totalHours = detailEntries.filter(e => e.status === 'approved').reduce((s, e) => s + (e.adjusted_hours || e.total_hours), 0);
             const adjMeta: Record<string, { label: string; color: string; sign: string }> = {
               bonus:     { label: 'Bonus',            color: 'var(--success)', sign: '+' },
               overtime:  { label: 'Overtime Pay',     color: 'var(--success)', sign: '+' },
@@ -572,15 +663,15 @@ export default function PayrollPage() {
                 {/* Work entries */}
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
-                    <span>⏱ Approved Work Entries</span>
-                    <span style={{ color: 'var(--primary)' }}>{totalHours.toFixed(2)} hrs total</span>
+                    <span>⏱ Work Entries</span>
+                    <span style={{ color: 'var(--primary)' }}>{totalHours.toFixed(2)} approved hrs</span>
                   </div>
                   {detailEntries.length === 0 ? (
-                    <div style={{ padding: '12px', background: 'var(--bg)', borderRadius: 8, fontSize: 13, color: 'var(--text-2)' }}>No approved work entries</div>
+                    <div style={{ padding: '12px', background: 'var(--bg)', borderRadius: 8, fontSize: 13, color: 'var(--text-2)' }}>No work entries</div>
                   ) : (
                     <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', maxHeight: 200, overflowY: 'auto' }}>
                       <table className="data-table" style={{ fontSize: 12, margin: 0 }}>
-                        <thead><tr><th>Date</th><th>Hours</th><th>Task</th></tr></thead>
+                        <thead><tr><th>Date</th><th>Hours</th><th>Task</th><th>Status</th></tr></thead>
                         <tbody>
                           {detailEntries.map(e => (
                             <tr key={e.id}>
@@ -591,7 +682,8 @@ export default function PayrollPage() {
                                   <span style={{ fontSize: 10, color: 'var(--text-3)', marginLeft: 4 }}>({e.total_hours.toFixed(2)} orig)</span>
                                 )}
                               </td>
-                              <td className="muted" style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.task_description || '—'}</td>
+                              <td className="muted" style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.task_description || '—'}</td>
+                              <td><Badge status={e.status === 'approved' ? 'active' : e.status === 'rejected' ? 'inactive' : 'pending'}>{e.status === 'approved' ? '✓' : e.status === 'rejected' ? '✗' : '⏳'}</Badge></td>
                             </tr>
                           ))}
                         </tbody>

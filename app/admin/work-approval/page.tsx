@@ -17,6 +17,7 @@ const PAGE_SIZE = 10;
 export default function WorkApprovalPage() {
   const { user } = useUser();
   const [entries, setEntries] = useState<WorkEntry[]>([]);
+  const [payrollMap, setPayrollMap] = useState<Record<string, { status: string; updated_at?: string }>>({});
   const [counts, setCounts] = useState({ pending: 0, approved: 0, rejected: 0 });
   const [tab, setTab] = useState('pending');
   const [selected, setSelected] = useState<WorkEntry | null>(null);
@@ -43,7 +44,30 @@ export default function WorkApprovalPage() {
     try {
       const res = await fetch(`/api/work-entries?status=${tab}&limit=200`);
       const json = await res.json();
-      setEntries(json.data || []);
+      const loadedEntries: WorkEntry[] = json.data || [];
+      setEntries(loadedEntries);
+
+      // Build payroll status map keyed by "employeeId_YYYY-MM"
+      const pairs = new Map<string, string>();
+      for (const e of loadedEntries) {
+        const month = e.entry_date?.slice(0, 7);
+        if (e.employee_id && month) pairs.set(`${e.employee_id}_${month}`, month);
+      }
+      if (pairs.size > 0) {
+        const months = [...new Set([...pairs.values()])];
+        const results = await Promise.all(
+          months.map(m => fetch(`/api/payroll?month=${m}`).then(r => r.json()))
+        );
+        const map: Record<string, { status: string; updated_at?: string }> = {};
+        for (const result of results) {
+          for (const p of (result.data || [])) {
+            map[`${p.employee_id}_${p.payroll_month}`] = { status: p.status, updated_at: p.updated_at };
+          }
+        }
+        setPayrollMap(map);
+      } else {
+        setPayrollMap({});
+      }
     } catch { toast.error('Failed to load'); }
     finally { setLoading(false); }
   }, [tab]);
@@ -121,15 +145,21 @@ export default function WorkApprovalPage() {
             <div className="table-wrap">
               <table className="data-table">
                 <thead>
-                  <tr><th>Employee</th><th>Date</th><th>Hours</th><th>Description</th><th>Proof</th><th>Action</th></tr>
+                  <tr><th>Employee</th><th>Date</th><th>Hours</th><th>Description</th><th>Payment</th><th>Proof</th><th>Action</th></tr>
                 </thead>
                 <tbody>
                   {loading ? (
-                    <tr><td colSpan={6}><div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>Loading...</div></td></tr>
+                    <tr><td colSpan={7}><div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>Loading...</div></td></tr>
                   ) : paged.length === 0 ? (
-                    <tr><td colSpan={6}><div className="empty-state"><div className="empty-icon">✅</div><div>No {tab} entries</div></div></td></tr>
+                    <tr><td colSpan={7}><div className="empty-state"><div className="empty-icon">✅</div><div>No {tab} entries</div></div></td></tr>
                   ) : paged.map(e => {
                     const emp = e.employee as { full_name: string; employee_code: string } | undefined;
+                    const month = e.entry_date?.slice(0, 7);
+                    const payInfo = month ? payrollMap[`${e.employee_id}_${month}`] : undefined;
+                    // Entry is "new" if it was created/approved after payroll was last generated
+                    const isNewEntry = payInfo?.updated_at
+                      ? new Date(e.entry_date + 'T23:59:59') > new Date(payInfo.updated_at)
+                      : false;
                     return (
                       <tr key={e.id} style={{ background: selected?.id === e.id ? 'var(--primary-light)' : '' }}>
                         <td>
@@ -144,6 +174,17 @@ export default function WorkApprovalPage() {
                         <td className="muted">{formatDate(e.entry_date)}</td>
                         <td><strong style={{ color: 'var(--primary)' }}>{e.adjusted_hours || e.total_hours}h</strong></td>
                         <td className="muted" style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.task_description}</td>
+                        <td>
+                          {!payInfo
+                            ? <span style={{ color: 'var(--text-3)', fontSize: 12 }}>Not Generated</span>
+                            : isNewEntry
+                            ? <span style={{ fontSize: 12, color: 'var(--warning, #b45309)', fontWeight: 600 }}>⚠ New Entry</span>
+                            : payInfo.status === 'paid'
+                            ? <Badge status="active">✓ Paid</Badge>
+                            : payInfo.status === 'generated'
+                            ? <Badge status="pending">⏳ Unpaid</Badge>
+                            : <Badge status="pending">📋 Draft</Badge>}
+                        </td>
                         <td>
                           {e.proof_url
                             ? <a href={e.proof_url} target="_blank" rel="noreferrer"><Badge status="active">📎 File</Badge></a>

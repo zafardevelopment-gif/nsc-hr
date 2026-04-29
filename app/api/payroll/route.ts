@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { month } = body;
+    const { month, empId } = body;
     const db = createServerSupabase();
 
     // Get settings
@@ -49,32 +49,36 @@ export async function POST(req: NextRequest) {
     const hraRate = parseFloat(getSetting('hra_rate', '25')) / 100;
     const conveyance = parseFloat(getSetting('conveyance', '3000'));
 
-    // Get all active employees
-    const { data: employees } = await db.from('NSC_HR_employees').select('*').eq('active', true);
-    if (!employees) return NextResponse.json({ error: 'No employees found' }, { status: 400 });
+    // Get active employees — optionally filtered to a single employee
+    let empQuery = db.from('NSC_HR_employees').select('*').eq('active', true);
+    if (empId) empQuery = empQuery.eq('id', empId);
+    const { data: employees } = await empQuery;
+    if (!employees || employees.length === 0) return NextResponse.json({ error: 'No employees found' }, { status: 400 });
 
     const results = [];
 
     for (const emp of employees) {
       // Check if already exists
       const { data: existing } = await db.from('NSC_HR_payroll')
-        .select('id').eq('employee_id', emp.id).eq('payroll_month', month).single();
-      if (existing) continue;
+        .select('id,status').eq('employee_id', emp.id).eq('payroll_month', month).single();
 
-      // Fetch pending adjustments for this employee + month
-      const { data: adjs } = await db.from('NSC_HR_adjustments')
-        .select('*').eq('employee_id', emp.id).eq('adj_month', month).eq('applied', false);
+      // Skip paid payrolls — never recalculate
+      if (existing?.status === 'paid') continue;
 
-      const adjBonus    = adjs?.filter(a => a.adj_type === 'bonus').reduce((s, a) => s + a.amount, 0) || 0;
-      const adjOvertime = adjs?.filter(a => a.adj_type === 'overtime').reduce((s, a) => s + a.amount, 0) || 0;
-      const adjAdvance  = adjs?.filter(a => a.adj_type === 'advance').reduce((s, a) => s + a.amount, 0) || 0;
+      // Fetch ALL adjustments (applied + pending) for accurate totals
+      const { data: allAdjs } = await db.from('NSC_HR_adjustments')
+        .select('*').eq('employee_id', emp.id).eq('adj_month', month);
+      const pendingAdjs = allAdjs?.filter(a => !a.applied) || [];
+
+      const adjBonus    = (allAdjs?.filter(a => a.adj_type === 'bonus').reduce((s, a) => s + a.amount, 0) || 0);
+      const adjOvertime = (allAdjs?.filter(a => a.adj_type === 'overtime').reduce((s, a) => s + a.amount, 0) || 0);
+      const adjAdvance  = (allAdjs?.filter(a => a.adj_type === 'advance').reduce((s, a) => s + a.amount, 0) || 0);
 
       let basicSalary = 0, overtimePay = adjOvertime, approvedHours = 0;
 
       if (emp.emp_type === 'permanent' && emp.salary_type === 'monthly') {
         basicSalary = emp.monthly_salary || 0;
       } else if (emp.salary_type === 'hourly') {
-        // Sum approved hours for the month
         const [year, m] = month.split('-');
         const start = `${year}-${m}-01`;
         const end = new Date(parseInt(year), parseInt(m), 0).toISOString().split('T')[0];
@@ -112,17 +116,24 @@ export async function POST(req: NextRequest) {
         approved_hours: approvedHours,
         status: 'generated',
         generated_by: session.id,
+        updated_at: new Date().toISOString(),
       };
 
-      const { data } = await db.from('NSC_HR_payroll').insert(payrollEntry).select().single();
-      if (data) {
-        results.push(data);
-        // Mark adjustments as applied
-        if (adjs && adjs.length > 0) {
-          await db.from('NSC_HR_adjustments')
-            .update({ applied: true, updated_at: new Date().toISOString() })
-            .eq('employee_id', emp.id).eq('adj_month', month).eq('applied', false);
-        }
+      if (existing) {
+        // Recalculate existing generated/draft payroll with latest hours + adjustments
+        const { data } = await db.from('NSC_HR_payroll')
+          .update(payrollEntry).eq('id', existing.id).select().single();
+        if (data) results.push(data);
+      } else {
+        const { data } = await db.from('NSC_HR_payroll').insert(payrollEntry).select().single();
+        if (data) results.push(data);
+      }
+
+      // Mark any pending adjustments as applied
+      if (pendingAdjs.length > 0) {
+        await db.from('NSC_HR_adjustments')
+          .update({ applied: true, updated_at: new Date().toISOString() })
+          .in('id', pendingAdjs.map(a => a.id));
       }
     }
 
@@ -131,7 +142,7 @@ export async function POST(req: NextRequest) {
       details: { month, count: results.length },
     });
 
-    return NextResponse.json({ data: results, message: `Payroll generated for ${results.length} employees` });
+    return NextResponse.json({ data: results, message: `Payroll processed for ${results.length} employee${results.length !== 1 ? 's' : ''} (paid records skipped)` });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: 'Failed to generate payroll' }, { status: 500 });

@@ -99,6 +99,7 @@ export interface Payroll {
   payment_notes?: string;
   bank_last4?: string;
   created_at?: string;
+  updated_at?: string;
   employee?: Employee;
 }
 

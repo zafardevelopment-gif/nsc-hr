@@ -16,6 +16,7 @@ interface WorkEntry {
   total_hours: number;
   adjusted_hours?: number;
   task_description?: string;
+  status: string;
 }
 
 interface Adjustment {
@@ -44,14 +45,17 @@ export default function PayslipPage() {
   const [entries, setEntries]         = useState<WorkEntry[]>([]);
   const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
   const [loading, setLoading]         = useState(true);
+  const [activeTab, setActiveTab]     = useState<'payslip' | 'entries'>('payslip');
   const monthOptions = getMonthOptions();
+
+  useEffect(() => { setActiveTab('payslip'); }, [month]);
 
   useEffect(() => {
     if (!user) return;
     setLoading(true);
     Promise.all([
       fetch(`/api/payroll?month=${month}`).then(r => r.json()),
-      fetch(`/api/work-entries?month=${month}&status=approved`).then(r => r.json()),
+      fetch(`/api/work-entries?month=${month}`).then(r => r.json()),
       fetch(`/api/adjustments?month=${month}`).then(r => r.json()),
     ]).then(([pay, work, adj]) => {
       setPayroll(pay.data?.[0] || null);
@@ -146,7 +150,7 @@ export default function PayslipPage() {
 
     // Work entries
     if (entries.length > 0) {
-      const totalHours = entries.reduce((s, e) => s + (e.adjusted_hours || e.total_hours), 0);
+      const totalHours = entries.filter(e => e.status === 'approved').reduce((s, e) => s + (e.adjusted_hours || e.total_hours), 0);
       doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(0, 0, 0);
       doc.text('Approved Work Entries', 14, y + 6); y += 10;
       autoTable(doc, {
@@ -208,7 +212,15 @@ export default function PayslipPage() {
 
   if (!user) return null;
   const emp = user.employee;
-  const totalHours = entries.reduce((s, e) => s + (e.adjusted_hours || e.total_hours), 0);
+  const totalHours = entries.filter(e => e.status === 'approved').reduce((s, e) => s + (e.adjusted_hours || e.total_hours), 0);
+  // Entries included in payroll (generated_at time) vs new entries after payroll
+  const payrollGeneratedAt = payroll?.updated_at || payroll?.created_at;
+  const includedEntries = payrollGeneratedAt
+    ? entries.filter(e => new Date(e.entry_date + 'T23:59:59') <= new Date(payrollGeneratedAt))
+    : entries;
+  const newEntries = payrollGeneratedAt
+    ? entries.filter(e => new Date(e.entry_date + 'T23:59:59') > new Date(payrollGeneratedAt))
+    : [];
 
   return (
     <>
@@ -223,13 +235,100 @@ export default function PayslipPage() {
         }
       />
       <div className="page-content">
+        {/* Tabs — always visible */}
+        <div className="card" style={{ padding: 0, marginBottom: 20 }}>
+          <div style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
+            {([
+              { key: 'payslip' as const, label: loading ? 'Payslip' : payroll ? (payroll.status === 'paid' ? '✓ Salary Paid' : '⏳ Salary Generated') : '📋 Not Generated' },
+              { key: 'entries' as const, label: loading ? 'Work Entries' : `Work Entries${newEntries.length > 0 ? ` (+${newEntries.length} new)` : entries.length > 0 ? ` (${entries.length})` : ''}` },
+            ] as const).map(t => (
+              <button key={t.key} onClick={() => setActiveTab(t.key)}
+                style={{ padding: '14px 24px', border: 'none', background: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 14,
+                  color: activeTab === t.key ? 'var(--primary)' : 'var(--text-2)',
+                  borderBottom: activeTab === t.key ? '3px solid var(--primary)' : '3px solid transparent',
+                  marginBottom: -1 }}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {loading ? (
-          <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-2)' }}>Loading payslip...</div>
+          <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-2)' }}>Loading...</div>
+        ) : activeTab === 'entries' ? (
+          /* ── Work Entries Tab ── */
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {entries.length === 0 ? (
+              <div className="empty-state card" style={{ padding: 60 }}>
+                <div className="empty-icon">📋</div>
+                <div style={{ fontWeight: 700, fontSize: 16 }}>No work entries for {getPayrollMonthLabel(month)}</div>
+              </div>
+            ) : (
+              <>
+                {newEntries.length > 0 && (
+                  <div className="alert alert-info" style={{ margin: 0 }}>
+                    ⚠️ <strong>{newEntries.length} new entr{newEntries.length > 1 ? 'ies' : 'y'}</strong> submitted after payroll was generated — will be included in next payroll cycle.
+                  </div>
+                )}
+                <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                  <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', fontWeight: 700, fontSize: 14, display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Work Entries — {getPayrollMonthLabel(month)}</span>
+                    <span style={{ color: 'var(--primary)', fontSize: 13 }}>{totalHours.toFixed(2)} approved hrs</span>
+                  </div>
+                  <table className="data-table" style={{ fontSize: 13 }}>
+                    <thead><tr><th>Date</th><th>Hours</th><th>Task Description</th><th>Entry Status</th><th>Salary</th></tr></thead>
+                    <tbody>
+                      {entries.map(e => {
+                        const isNew = payrollGeneratedAt && new Date(e.entry_date + 'T23:59:59') > new Date(payrollGeneratedAt);
+                        return (
+                          <tr key={e.id} style={{ background: isNew ? 'rgba(245,158,11,0.05)' : '' }}>
+                            <td className="muted" style={{ whiteSpace: 'nowrap' }}>
+                              {new Date(e.entry_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              {isNew && <span style={{ marginLeft: 6, fontSize: 10, background: 'var(--warning, #f59e0b)', color: '#fff', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>NEW</span>}
+                            </td>
+                            <td style={{ fontWeight: 600 }}>
+                              {(e.adjusted_hours || e.total_hours).toFixed(2)}
+                              {e.adjusted_hours && e.adjusted_hours !== e.total_hours && (
+                                <span style={{ fontSize: 11, color: 'var(--text-3)', marginLeft: 4 }}>(orig: {e.total_hours.toFixed(2)})</span>
+                              )}
+                            </td>
+                            <td className="muted">{e.task_description || '—'}</td>
+                            <td><Badge status={e.status === 'approved' ? 'active' : e.status === 'rejected' ? 'inactive' : 'pending'}>{e.status === 'approved' ? '✓ Approved' : e.status === 'rejected' ? '✗ Rejected' : '⏳ Pending'}</Badge></td>
+                            <td>
+                              {isNew
+                                ? <span style={{ fontSize: 12, color: 'var(--warning, #b45309)', fontWeight: 600 }}>Next Cycle</span>
+                                : !payroll
+                                ? <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Not Generated</span>
+                                : payroll.status === 'paid'
+                                ? <Badge status="active">✓ Paid</Badge>
+                                : <Badge status="pending">⏳ Unpaid</Badge>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ background: 'var(--primary-light)' }}>
+                        <td style={{ padding: '8px 16px', fontWeight: 700, color: 'var(--primary)' }}></td>
+                        <td style={{ padding: '8px 16px', fontWeight: 700, color: 'var(--primary)' }}>Total: {totalHours.toFixed(2)} hrs</td>
+                        <td colSpan={3}></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
         ) : !payroll ? (
           <div className="empty-state card" style={{ padding: 60 }}>
             <div className="empty-icon">💰</div>
             <div style={{ fontWeight: 700, fontSize: 16 }}>No payslip for {getPayrollMonthLabel(month)}</div>
             <div style={{ fontSize: 13, color: 'var(--text-2)' }}>Payroll has not been generated for this month yet.</div>
+            {entries.length > 0 && (
+              <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-2)' }}>
+                You have <strong>{entries.filter(e => e.status === 'approved').length} approved</strong> work entries — switch to the Work Entries tab to view them.
+              </div>
+            )}
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -362,11 +461,11 @@ export default function PayslipPage() {
             {entries.length > 0 && (
               <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
                 <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', fontWeight: 700, fontSize: 14, display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Approved Work Entries</span>
-                  <span style={{ color: 'var(--primary)', fontSize: 13 }}>{totalHours.toFixed(2)} hrs total</span>
+                  <span>Work Entries</span>
+                  <span style={{ color: 'var(--primary)', fontSize: 13 }}>{totalHours.toFixed(2)} approved hrs</span>
                 </div>
                 <table className="data-table" style={{ fontSize: 13 }}>
-                  <thead><tr><th>Date</th><th>Hours</th><th>Task Description</th></tr></thead>
+                  <thead><tr><th>Date</th><th>Hours</th><th>Task Description</th><th>Status</th></tr></thead>
                   <tbody>
                     {entries.map(e => (
                       <tr key={e.id}>
@@ -378,6 +477,7 @@ export default function PayslipPage() {
                           )}
                         </td>
                         <td className="muted">{e.task_description || '—'}</td>
+                        <td><Badge status={e.status === 'approved' ? 'active' : e.status === 'rejected' ? 'inactive' : 'pending'}>{e.status === 'approved' ? '✓ Approved' : e.status === 'rejected' ? '✗ Rejected' : '⏳ Pending'}</Badge></td>
                       </tr>
                     ))}
                   </tbody>
