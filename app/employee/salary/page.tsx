@@ -115,7 +115,7 @@ export default function SalaryPage() {
                 )}
               </div>
               {payroll && (
-                <Badge status={payroll.status} style={{ fontSize: 13, padding: '6px 14px' }}>
+                <Badge status={payroll.status}>
                   {payroll.status === 'paid' ? '✓ Salary Paid' : '⏳ Pending Payment'}
                 </Badge>
               )}
