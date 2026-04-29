@@ -110,14 +110,16 @@ export default function SalaryPage() {
                 </div>
                 {!payroll && (
                   <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, marginTop: 4 }}>
-                    Payroll not generated yet — estimated from approved hours & adjustments
+                    Payroll not generated yet — estimated from approved hours &amp; adjustments
                   </div>
                 )}
               </div>
-              {payroll && (
+              {payroll ? (
                 <Badge status={payroll.status}>
-                  {payroll.status === 'paid' ? '✓ Salary Paid' : '⏳ Pending Payment'}
+                  {payroll.status === 'paid' ? '✓ Salary Paid' : payroll.status === 'generated' ? '⏳ Pending Payment' : '📋 Draft'}
                 </Badge>
+              ) : (
+                <Badge status="pending">📋 Not Generated</Badge>
               )}
             </div>
 
@@ -264,13 +266,29 @@ export default function SalaryPage() {
             ) : (
               /* Estimated breakdown when payroll not yet generated */
               <div className="card" style={{ padding: '20px 24px' }}>
-                <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>Estimated Breakdown</div>
-                <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 16 }}>Payroll not generated yet. This is an estimate based on current data.</div>
-                <InfoRow label={emp?.salary_type === 'hourly' ? `Base (${approvedHours.toFixed(2)} hrs × ${formatCurrency(emp?.hourly_rate || 0)}/hr)` : 'Base Salary'} value={formatCurrency(hourlyBase)} />
-                {adjAdditions  > 0 && <InfoRow label="+ Adjustments (additions)"  value={`+${formatCurrency(adjAdditions)}`}  color="var(--success)" />}
-                {adjDeductions > 0 && <InfoRow label="− Adjustments (deductions)" value={`-${formatCurrency(adjDeductions)}`} color="var(--danger)"  />}
-                <div style={{ marginTop: 16, background: 'var(--primary-light)', border: '1.5px solid var(--primary)', borderRadius: 10, padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontWeight: 700, color: 'var(--primary)' }}>Estimated Net</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <div style={{ fontWeight: 700, fontSize: 15 }}>Salary Breakdown</div>
+                  <Badge status="pending">📋 Not Generated</Badge>
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 16 }}>Payroll not generated yet — this is an estimate based on current approved hours &amp; adjustments.</div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--success)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>+ Earnings</div>
+                  <InfoRow
+                    label={emp?.salary_type === 'hourly' ? `Basic Salary (${approvedHours.toFixed(2)} hrs × ${formatCurrency(emp?.hourly_rate || 0)}/hr)` : 'Basic Salary'}
+                    value={formatCurrency(hourlyBase)}
+                  />
+                  {adjAdditions > 0 && <InfoRow label="Bonus / Overtime" value={`+${formatCurrency(adjAdditions)}`} color="var(--success)" />}
+                  <InfoRow label="Gross Earnings" value={formatCurrency(hourlyBase + adjAdditions)} bold color="var(--success)" />
+                </div>
+                {adjDeductions > 0 && (
+                  <div style={{ marginTop: 16 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--danger)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>− Deductions</div>
+                    <InfoRow label="Advance / Deductions" value={`-${formatCurrency(adjDeductions)}`} color="var(--danger)" />
+                    <InfoRow label="Total Deductions" value={`-${formatCurrency(adjDeductions)}`} bold color="var(--danger)" />
+                  </div>
+                )}
+                <div style={{ marginTop: 20, background: 'var(--primary-light)', border: '1.5px solid var(--primary)', borderRadius: 10, padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: 700, color: 'var(--primary)' }}>Estimated Net Pay</span>
                   <strong style={{ fontSize: 24, color: 'var(--primary)' }}>{formatCurrency(estimatedNet)}</strong>
                 </div>
               </div>

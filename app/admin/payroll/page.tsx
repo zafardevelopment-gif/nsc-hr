@@ -175,7 +175,7 @@ export default function PayrollPage() {
     autoTable(doc, {
       startY: 52,
       head: [['Employee', 'Code', 'Department', 'Type']],
-      body: [[emp?.full_name || '—', emp?.employee_code || '—', emp?.department || '—', emp?.emp_type || '—']],
+      body: [[emp?.full_name || '—', emp?.employee_code || '—', emp?.department || '—', emp?.emp_type === 'part-time' ? 'Part-Time' : emp?.emp_type === 'permanent' ? 'Permanent' : emp?.emp_type || '—']],
       theme: 'striped', styles: { fontSize: 9 },
       headStyles: { fillColor: [27, 168, 154] },
     });
@@ -392,7 +392,7 @@ export default function PayrollPage() {
                           <Avatar name={emp?.full_name || ''} size="sm" />
                           <div>
                             <div style={{ fontWeight: 600 }}>{emp?.full_name}</div>
-                            <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{emp?.emp_type} · {emp?.department}</div>
+                            <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{emp?.emp_type === 'part-time' ? 'Part-Time' : emp?.emp_type === 'permanent' ? 'Permanent' : emp?.emp_type} · {emp?.department}</div>
                           </div>
                         </div>
                       </td>
@@ -558,7 +558,7 @@ export default function PayrollPage() {
                       {[
                         { f: 'Employee Code', v: emp?.employee_code || '—' },
                         { f: 'Department',    v: emp?.department || '—' },
-                        { f: 'Employee Type', v: emp?.emp_type || '—' },
+                        { f: 'Employee Type', v: emp?.emp_type === 'part-time' ? 'Part-Time' : emp?.emp_type === 'permanent' ? 'Permanent' : emp?.emp_type || '—' },
                       ].map((row, i) => (
                         <tr key={row.f} style={{ background: i % 2 === 0 ? 'var(--bg)' : 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
                           <td style={{ padding: '7px 12px', color: 'var(--primary)', fontWeight: 500 }}>{row.f}</td>

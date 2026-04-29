@@ -247,7 +247,7 @@ export default function EmployeesPage() {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 {[
-                  { l: 'Type', v: selectedEmp.emp_type },
+                  { l: 'Type', v: selectedEmp.emp_type === 'part-time' ? 'Part-Time' : 'Permanent' },
                   { l: 'Salary', v: selectedEmp.salary_type === 'hourly' ? `${formatCurrency(selectedEmp.hourly_rate || 0)}/hr` : formatCurrency(selectedEmp.monthly_salary || 0) },
                   { l: 'Department', v: selectedEmp.department },
                   { l: 'Designation', v: selectedEmp.designation || '—' },

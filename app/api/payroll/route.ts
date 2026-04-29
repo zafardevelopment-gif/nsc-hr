@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
 
   const db = createServerSupabase();
   let query = db.from('NSC_HR_payroll')
-    .select('*, employee:NSC_HR_employees(id,employee_code,full_name,department,emp_type,salary_type)', { count: 'exact' });
+    .select('*, employee:NSC_HR_employees(id,employee_code,full_name,department,emp_type,salary_type,hourly_rate)', { count: 'exact' });
 
   if (session.role === 'employee') {
     query = query.eq('employee_id', session.employee_id!);

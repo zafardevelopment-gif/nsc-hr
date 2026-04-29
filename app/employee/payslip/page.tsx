@@ -97,7 +97,7 @@ export default function PayslipPage() {
         ['Employee Code', emp?.employee_code || '—'],
         ['Department',    emp?.department || '—'],
         ['Designation',   emp?.designation || '—'],
-        ['Employee Type', emp?.emp_type || '—'],
+        ['Employee Type', emp?.emp_type === 'part-time' ? 'Part-Time' : emp?.emp_type === 'permanent' ? 'Permanent' : emp?.emp_type || '—'],
       ],
       theme: 'striped', styles: { fontSize: 9 },
       headStyles: { fillColor: [27, 168, 154] },
@@ -271,7 +271,7 @@ export default function PayslipPage() {
                       { f: 'Employee Code', v: emp?.employee_code || '—' },
                       { f: 'Department',    v: emp?.department || '—' },
                       { f: 'Designation',   v: emp?.designation || '—' },
-                      { f: 'Employee Type', v: emp?.emp_type || '—' },
+                      { f: 'Employee Type', v: emp?.emp_type === 'part-time' ? 'Part-Time' : emp?.emp_type === 'permanent' ? 'Permanent' : emp?.emp_type || '—' },
                     ].map((row, i) => (
                       <tr key={row.f} style={{ background: i % 2 === 0 ? 'var(--bg)' : 'var(--surface)' }}>
                         <td style={{ padding: '8px 12px', color: 'var(--primary)', fontWeight: 500 }}>{row.f}</td>
@@ -356,10 +356,6 @@ export default function PayslipPage() {
                 </div>
               )}
 
-              {/* ── Footer note ── */}
-              <div style={{ padding: '14px 28px', borderTop: '1px solid var(--border)', fontSize: 12, color: 'var(--text-3)', fontStyle: 'italic', textAlign: 'center' }}>
-                This is a computer-generated payslip. For queries, contact HR at hr@nsc.com
-              </div>
             </div>
 
             {/* ── Work Entries ── */}
