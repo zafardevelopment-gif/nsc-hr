@@ -216,27 +216,30 @@ export default function SalaryPage() {
             {payroll ? (
               <div className="card" style={{ padding: '20px 24px' }}>
                 <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 16 }}>Salary Breakdown</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 40px' }}>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--success)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>+ Earnings</div>
-                    <InfoRow label="Basic Salary"     value={formatCurrency(payroll.basic_salary)} />
-                    {payroll.hra        > 0 && <InfoRow label="HRA"            value={formatCurrency(payroll.hra)} />}
-                    {payroll.conveyance > 0 && <InfoRow label="Conveyance"     value={formatCurrency(payroll.conveyance)} />}
-                    {payroll.overtime_pay > 0 && <InfoRow label="Overtime Pay"   value={formatCurrency(payroll.overtime_pay)} color="var(--success)" />}
-                    {payroll.bonus > 0        && <InfoRow label="Bonus"          value={formatCurrency(payroll.bonus)} color="var(--success)" />}
-                    {payroll.other_allowance > 0 && <InfoRow label="Other Allowance" value={formatCurrency(payroll.other_allowance)} color="var(--success)" />}
-                    <InfoRow label="Gross Earnings" value={formatCurrency(payroll.gross_earnings)} bold color="var(--success)" />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--danger)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>− Deductions</div>
-                    {payroll.pf_employee       > 0 && <InfoRow label="PF (Employee)"    value={`-${formatCurrency(payroll.pf_employee)}`}       color="var(--danger)" />}
-                    {payroll.professional_tax  > 0 && <InfoRow label="Professional Tax"  value={`-${formatCurrency(payroll.professional_tax)}`}  color="var(--danger)" />}
-                    {payroll.advance_deduction > 0 && <InfoRow label="Advance Deduction" value={`-${formatCurrency(payroll.advance_deduction)}`} color="var(--danger)" />}
-                    {payroll.other_deductions  > 0 && <InfoRow label="Other Deductions"  value={`-${formatCurrency(payroll.other_deductions)}`}  color="var(--danger)" />}
-                    {payroll.leave_deductions  > 0 && <InfoRow label="Leave Deductions"  value={`-${formatCurrency(payroll.leave_deductions)}`}  color="var(--danger)" />}
-                    <InfoRow label="Total Deductions" value={`-${formatCurrency(payroll.total_deductions)}`} bold color="var(--danger)" />
-                  </div>
-                </div>
+                {(() => {
+                  const hasDeductions = (payroll.advance_deduction > 0) || (payroll.leave_deductions > 0);
+                  return (
+                    <div style={{ display: 'grid', gridTemplateColumns: hasDeductions ? '1fr 1fr' : '1fr', gap: '0 40px' }}>
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--success)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>+ Earnings</div>
+                        <InfoRow label="Basic Salary" value={formatCurrency(payroll.basic_salary)} />
+                        {payroll.hra         > 0 && <InfoRow label="HRA"          value={formatCurrency(payroll.hra)} />}
+                        {payroll.conveyance  > 0 && <InfoRow label="Conveyance"   value={formatCurrency(payroll.conveyance)} />}
+                        {payroll.overtime_pay > 0 && <InfoRow label="Overtime Pay" value={formatCurrency(payroll.overtime_pay)} color="var(--success)" />}
+                        {payroll.bonus        > 0 && <InfoRow label="Bonus"        value={formatCurrency(payroll.bonus)} color="var(--success)" />}
+                        <InfoRow label="Gross Earnings" value={formatCurrency(payroll.gross_earnings)} bold color="var(--success)" />
+                      </div>
+                      {hasDeductions && (
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--danger)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>− Deductions</div>
+                          {payroll.advance_deduction > 0 && <InfoRow label="Advance Deduction" value={`-${formatCurrency(payroll.advance_deduction)}`} color="var(--danger)" />}
+                          {payroll.leave_deductions  > 0 && <InfoRow label="Leave Deductions"  value={`-${formatCurrency(payroll.leave_deductions)}`}  color="var(--danger)" />}
+                          <InfoRow label="Total Deductions" value={`-${formatCurrency(payroll.total_deductions)}`} bold color="var(--danger)" />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
                 {/* Net pay bar */}
                 <div style={{ marginTop: 20, background: 'var(--primary-light)', border: '1.5px solid var(--primary)', borderRadius: 10, padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontWeight: 700, color: 'var(--primary)' }}>Net Pay (Take Home)</span>

@@ -155,17 +155,13 @@ export default function AdjustmentsPage() {
       // True base = current payroll value minus already-applied adjustments
       const baseOT      = (payroll.overtime_pay      || 0) - appliedSum('overtime');
       const baseBonus   = (payroll.bonus             || 0) - appliedSum('bonus');
-      const baseAllow   = (payroll.other_allowance   || 0) - appliedSum('allowance');
       const baseAdvance = (payroll.advance_deduction || 0) - appliedSum('advance');
-      const baseDed     = (payroll.other_deductions  || 0) - appliedSum('deduction');
 
       // New value = base + all pending (including current adj)
       const body: Record<string, unknown> = {
         overtime_pay:      Math.max(0, baseOT)      + sum('overtime'),
         bonus:             Math.max(0, baseBonus)   + sum('bonus'),
-        other_allowance:   Math.max(0, baseAllow)   + sum('allowance'),
         advance_deduction: Math.max(0, baseAdvance) + sum('advance'),
-        other_deductions:  Math.max(0, baseDed)     + sum('deduction'),
         adj_ids: allPending.map(a => a.id),
       };
 

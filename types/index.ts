@@ -86,12 +86,8 @@ export interface Payroll {
   conveyance: number;
   overtime_pay: number;
   bonus: number;
-  other_allowance: number;
   gross_earnings: number;
-  pf_employee: number;
-  professional_tax: number;
   advance_deduction: number;
-  other_deductions: number;
   total_deductions: number;
   net_pay: number;
   approved_hours: number;

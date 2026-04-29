@@ -105,25 +105,42 @@ export default function PayslipPage() {
 
     let y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
 
-    // Earnings & Deductions side-by-side
-    autoTable(doc, {
-      startY: y,
-      head: [['Earnings', 'Amount', 'Deductions', 'Amount']],
-      body: [
-        ['Basic Salary',    formatCurrency(payroll.basic_salary),       'PF (Employee)',      formatCurrency(payroll.pf_employee)],
-        ['HRA',             formatCurrency(payroll.hra),                 'Professional Tax',   formatCurrency(payroll.professional_tax)],
-        ['Conveyance',      formatCurrency(payroll.conveyance),          'Advance Deduction',  formatCurrency(payroll.advance_deduction)],
-        ...(payroll.overtime_pay    > 0 ? [['Overtime Pay',     formatCurrency(payroll.overtime_pay),    '', '']] : []),
-        ...(payroll.bonus           > 0 ? [['Bonus',            formatCurrency(payroll.bonus),           '', '']] : []),
-        ...(payroll.other_allowance > 0 ? [['Other Allowance',  formatCurrency(payroll.other_allowance), '', '']] : []),
-        ...(payroll.other_deductions > 0 ? [['', '', 'Other Deductions', formatCurrency(payroll.other_deductions)]] : []),
-        ...(payroll.leave_deductions > 0 ? [['', '', 'Leave Deductions', formatCurrency(payroll.leave_deductions)]] : []),
-        ['', '', '', ''],
-        ['GROSS EARNINGS', formatCurrency(payroll.gross_earnings), 'TOTAL DEDUCTIONS', formatCurrency(payroll.total_deductions)],
-      ],
-      theme: 'grid', styles: { fontSize: 9 },
-      headStyles: { fillColor: [27, 168, 154] },
-    });
+    // Earnings & Deductions — hide deductions columns if none exist
+    {
+      const eRows: string[][] = [
+        ['Basic Salary', formatCurrency(payroll.basic_salary)],
+        ...(payroll.hra          > 0 ? [['HRA',          formatCurrency(payroll.hra)]]          : []),
+        ...(payroll.conveyance   > 0 ? [['Conveyance',   formatCurrency(payroll.conveyance)]]   : []),
+        ...(payroll.overtime_pay > 0 ? [['Overtime Pay', formatCurrency(payroll.overtime_pay)]] : []),
+        ...(payroll.bonus        > 0 ? [['Bonus',        formatCurrency(payroll.bonus)]]        : []),
+      ];
+      const dRows: string[][] = [
+        ...(payroll.advance_deduction > 0 ? [['Advance Deduction', formatCurrency(payroll.advance_deduction)]] : []),
+        ...(payroll.leave_deductions  > 0 ? [['Leave Deductions',  formatCurrency(payroll.leave_deductions)]]  : []),
+      ];
+      if (dRows.length > 0) {
+        const maxR = Math.max(eRows.length, dRows.length);
+        const rows: string[][] = Array.from({ length: maxR }, (_, i) => [
+          eRows[i]?.[0] ?? '', eRows[i]?.[1] ?? '',
+          dRows[i]?.[0] ?? '', dRows[i]?.[1] ?? '',
+        ]);
+        rows.push(['GROSS EARNINGS', formatCurrency(payroll.gross_earnings), 'TOTAL DEDUCTIONS', formatCurrency(payroll.total_deductions)]);
+        autoTable(doc, {
+          startY: y, head: [['Earnings', 'Amount', 'Deductions', 'Amount']], body: rows,
+          foot: [['NET PAY (TAKE HOME)', formatCurrency(payroll.net_pay), '', '']],
+          theme: 'grid', styles: { fontSize: 9 }, headStyles: { fillColor: [27, 168, 154] },
+          footStyles: { fillColor: [230, 246, 245], textColor: [27, 168, 154], fontStyle: 'bold', fontSize: 10 },
+        });
+      } else {
+        const rows = eRows.concat([['GROSS EARNINGS', formatCurrency(payroll.gross_earnings)]]);
+        autoTable(doc, {
+          startY: y, head: [['Earnings', 'Amount']], body: rows,
+          foot: [['NET PAY (TAKE HOME)', formatCurrency(payroll.net_pay)]],
+          theme: 'grid', styles: { fontSize: 9 }, headStyles: { fillColor: [27, 168, 154] },
+          footStyles: { fillColor: [230, 246, 245], textColor: [27, 168, 154], fontStyle: 'bold', fontSize: 10 },
+        });
+      }
+    }
 
     y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
 
@@ -266,56 +283,55 @@ export default function PayslipPage() {
               </div>
 
               {/* ── Earnings & Deductions ── */}
-              <div style={{ padding: '20px 28px', borderBottom: '1px solid var(--border)' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ background: 'var(--primary)', color: '#fff' }}>
-                      <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, width: '30%' }}>Earnings</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, width: '20%' }}>Amount</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, width: '30%' }}>Deductions</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, width: '20%' }}>Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(() => {
-                      const earningsRows = [
-                        { label: 'Basic Salary',    value: payroll.basic_salary },
-                        { label: 'HRA',             value: payroll.hra },
-                        { label: 'Conveyance',      value: payroll.conveyance },
-                        ...(payroll.overtime_pay    > 0 ? [{ label: 'Overtime Pay',    value: payroll.overtime_pay }]    : []),
-                        ...(payroll.bonus           > 0 ? [{ label: 'Bonus',           value: payroll.bonus }]           : []),
-                        ...(payroll.other_allowance > 0 ? [{ label: 'Other Allowance', value: payroll.other_allowance }] : []),
-                      ];
-                      const deductionRows = [
-                        { label: 'PF (Employee)',    value: payroll.pf_employee },
-                        { label: 'Professional Tax', value: payroll.professional_tax },
-                        { label: 'Advance Deduction',value: payroll.advance_deduction },
-                        ...(payroll.other_deductions > 0 ? [{ label: 'Other Deductions', value: payroll.other_deductions }] : []),
-                        ...(payroll.leave_deductions > 0 ? [{ label: 'Leave Deductions',  value: payroll.leave_deductions }]  : []),
-                      ];
-                      const maxRows = Math.max(earningsRows.length, deductionRows.length);
-                      return Array.from({ length: maxRows }, (_, i) => {
-                        const e = earningsRows[i];
-                        const d = deductionRows[i];
-                        return (
-                          <tr key={i} style={{ background: i % 2 === 0 ? 'var(--bg)' : 'var(--surface)' }}>
-                            <td style={{ padding: '8px 12px', color: 'var(--primary)', fontWeight: 500 }}>{e?.label ?? ''}</td>
-                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>{e ? formatCurrency(e.value) : ''}</td>
-                            <td style={{ padding: '8px 12px', color: 'var(--primary)', fontWeight: 500 }}>{d?.label ?? ''}</td>
-                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>{d ? formatCurrency(d.value) : ''}</td>
-                          </tr>
-                        );
-                      });
-                    })()}
-                    <tr style={{ background: 'var(--surface)', borderTop: '2px solid var(--border)' }}>
-                      <td style={{ padding: '10px 12px', fontWeight: 700, color: 'var(--success)' }}>GROSS EARNINGS</td>
-                      <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: 'var(--success)' }}>{formatCurrency(payroll.gross_earnings)}</td>
-                      <td style={{ padding: '10px 12px', fontWeight: 700, color: 'var(--danger)' }}>TOTAL DEDUCTIONS</td>
-                      <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: 'var(--danger)' }}>{formatCurrency(payroll.total_deductions)}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+              {(() => {
+                const earningsRows = [
+                  { label: 'Basic Salary', value: payroll.basic_salary },
+                  ...(payroll.hra         > 0 ? [{ label: 'HRA',         value: payroll.hra }]         : []),
+                  ...(payroll.conveyance  > 0 ? [{ label: 'Conveyance',  value: payroll.conveyance }]  : []),
+                  ...(payroll.overtime_pay > 0 ? [{ label: 'Overtime Pay', value: payroll.overtime_pay }] : []),
+                  ...(payroll.bonus        > 0 ? [{ label: 'Bonus',        value: payroll.bonus }]        : []),
+                ];
+                const deductionRows = [
+                  ...(payroll.advance_deduction > 0 ? [{ label: 'Advance Deduction', value: payroll.advance_deduction }] : []),
+                  ...(payroll.leave_deductions  > 0 ? [{ label: 'Leave Deductions',  value: payroll.leave_deductions }]  : []),
+                ];
+                const hasDeductions = deductionRows.length > 0;
+                const maxRows = Math.max(earningsRows.length, deductionRows.length);
+                return (
+                  <div style={{ padding: '20px 28px', borderBottom: '1px solid var(--border)' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                      <thead>
+                        <tr style={{ background: 'var(--primary)', color: '#fff' }}>
+                          <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, width: hasDeductions ? '30%' : '60%' }}>Earnings</th>
+                          <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, width: hasDeductions ? '20%' : '40%' }}>Amount</th>
+                          {hasDeductions && <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, width: '30%' }}>Deductions</th>}
+                          {hasDeductions && <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, width: '20%' }}>Amount</th>}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Array.from({ length: maxRows }, (_, i) => {
+                          const e = earningsRows[i];
+                          const d = deductionRows[i];
+                          return (
+                            <tr key={i} style={{ background: i % 2 === 0 ? 'var(--bg)' : 'var(--surface)' }}>
+                              <td style={{ padding: '8px 12px', color: 'var(--primary)', fontWeight: 500 }}>{e?.label ?? ''}</td>
+                              <td style={{ padding: '8px 12px', textAlign: 'right' }}>{e ? formatCurrency(e.value) : ''}</td>
+                              {hasDeductions && <td style={{ padding: '8px 12px', color: 'var(--primary)', fontWeight: 500 }}>{d?.label ?? ''}</td>}
+                              {hasDeductions && <td style={{ padding: '8px 12px', textAlign: 'right' }}>{d ? formatCurrency(d.value) : ''}</td>}
+                            </tr>
+                          );
+                        })}
+                        <tr style={{ background: 'var(--surface)', borderTop: '2px solid var(--border)' }}>
+                          <td style={{ padding: '10px 12px', fontWeight: 700, color: 'var(--success)' }}>GROSS EARNINGS</td>
+                          <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: 'var(--success)' }}>{formatCurrency(payroll.gross_earnings)}</td>
+                          {hasDeductions && <td style={{ padding: '10px 12px', fontWeight: 700, color: 'var(--danger)' }}>TOTAL DEDUCTIONS</td>}
+                          {hasDeductions && <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: 'var(--danger)' }}>{formatCurrency(payroll.total_deductions)}</td>}
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
 
               {/* ── Net Pay ── */}
               <div style={{ background: 'var(--primary-light)', padding: '20px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', flexWrap: 'wrap', gap: 12 }}>

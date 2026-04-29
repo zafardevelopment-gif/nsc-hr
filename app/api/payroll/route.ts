@@ -46,8 +46,6 @@ export async function POST(req: NextRequest) {
     // Get settings
     const { data: settings } = await db.from('NSC_HR_settings').select('*');
     const getSetting = (key: string, def = '0') => settings?.find(s => s.setting_key === key)?.setting_value || def;
-    const pfRate = parseFloat(getSetting('pf_rate', '12')) / 100;
-    const profTax = parseFloat(getSetting('professional_tax', '200'));
     const hraRate = parseFloat(getSetting('hra_rate', '25')) / 100;
     const conveyance = parseFloat(getSetting('conveyance', '3000'));
 
@@ -67,11 +65,9 @@ export async function POST(req: NextRequest) {
       const { data: adjs } = await db.from('NSC_HR_adjustments')
         .select('*').eq('employee_id', emp.id).eq('adj_month', month).eq('applied', false);
 
-      const adjBonus     = adjs?.filter(a => a.adj_type === 'bonus').reduce((s, a) => s + a.amount, 0) || 0;
-      const adjOvertime  = adjs?.filter(a => a.adj_type === 'overtime').reduce((s, a) => s + a.amount, 0) || 0;
-      const adjAllowance = adjs?.filter(a => a.adj_type === 'allowance').reduce((s, a) => s + a.amount, 0) || 0;
-      const adjDeduction = adjs?.filter(a => a.adj_type === 'deduction').reduce((s, a) => s + a.amount, 0) || 0;
-      const adjAdvance   = adjs?.filter(a => a.adj_type === 'advance').reduce((s, a) => s + a.amount, 0) || 0;
+      const adjBonus    = adjs?.filter(a => a.adj_type === 'bonus').reduce((s, a) => s + a.amount, 0) || 0;
+      const adjOvertime = adjs?.filter(a => a.adj_type === 'overtime').reduce((s, a) => s + a.amount, 0) || 0;
+      const adjAdvance  = adjs?.filter(a => a.adj_type === 'advance').reduce((s, a) => s + a.amount, 0) || 0;
 
       let basicSalary = 0, overtimePay = adjOvertime, approvedHours = 0;
 
@@ -97,10 +93,8 @@ export async function POST(req: NextRequest) {
 
       const hra = emp.emp_type === 'permanent' ? basicSalary * hraRate : 0;
       const conv = emp.emp_type === 'permanent' ? conveyance : 0;
-      const grossEarnings = basicSalary + hra + conv + overtimePay + adjBonus + adjAllowance;
-      const pfDeduction = emp.emp_type === 'permanent' ? basicSalary * pfRate : 0;
-      const pt = emp.emp_type === 'permanent' && grossEarnings > 0 ? profTax : 0;
-      const totalDeductions = pfDeduction + pt + adjDeduction + adjAdvance;
+      const grossEarnings = basicSalary + hra + conv + overtimePay + adjBonus;
+      const totalDeductions = adjAdvance;
       const netPay = grossEarnings - totalDeductions;
 
       const payrollEntry = {
@@ -111,12 +105,8 @@ export async function POST(req: NextRequest) {
         conveyance: conv,
         overtime_pay: overtimePay,
         bonus: adjBonus,
-        other_allowance: adjAllowance,
         advance_deduction: adjAdvance,
-        other_deductions: adjDeduction,
         gross_earnings: grossEarnings,
-        pf_employee: pfDeduction,
-        professional_tax: pt,
         total_deductions: totalDeductions,
         net_pay: netPay,
         approved_hours: approvedHours,

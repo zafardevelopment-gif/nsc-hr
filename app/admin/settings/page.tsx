@@ -97,7 +97,7 @@ export default function SettingsPage() {
     try {
       const categoryKeys: Record<string, string[]> = {
         General: ['company_name', 'company_address', 'company_email', 'company_phone', 'currency', 'currency_symbol', 'financial_year', 'working_hours_day', 'timezone', 'work_entry_manual_approval'],
-        'Payroll Config': ['pf_rate', 'professional_tax', 'hra_rate', 'conveyance'],
+        'Payroll Config': ['hra_rate', 'conveyance'],
         'Leave Policy': ['casual_leave_days', 'sick_leave_days', 'emergency_leave_days'],
         Integrations: ['whatsapp_api_url', 'whatsapp_api_key'],
       };
@@ -234,23 +234,12 @@ export default function SettingsPage() {
                 <div className="alert alert-info">These settings affect payroll calculation for all employees.</div>
                 <div className="form-row">
                   <div className="form-group">
-                    <label className="form-label">PF Rate (%)</label>
-                    <input className="form-input" type="number" step="0.1" value={settings.pf_rate || '12'} onChange={e => set('pf_rate', e.target.value)} />
-                    <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Applied on basic salary for permanent employees</span>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Professional Tax (SAR fixed)</label>
-                    <input className="form-input" type="number" value={settings.professional_tax || '200'} onChange={e => set('professional_tax', e.target.value)} />
-                  </div>
-                </div>
-                <div className="form-row">
-                  <div className="form-group">
                     <label className="form-label">HRA Rate (% of basic)</label>
                     <input className="form-input" type="number" step="1" value={settings.hra_rate || '25'} onChange={e => set('hra_rate', e.target.value)} />
                   </div>
                   <div className="form-group">
                     <label className="form-label">Conveyance Allowance (SAR)</label>
-                    <input className="form-input" type="number" value={settings.conveyance || '3000'} onChange={e => set('conveyance', e.target.value)} />
+                    <input className="form-input" type="number" value={settings.conveyance || '0'} onChange={e => set('conveyance', e.target.value)} />
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>

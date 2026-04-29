@@ -30,7 +30,7 @@ export default function PayrollPage() {
   const [detailEntries, setDetailEntries] = useState<{id:string;entry_date:string;total_hours:number;adjusted_hours?:number;task_description?:string;status:string}[]>([]);
   const [detailAdjs, setDetailAdjs] = useState<{id:string;adj_type:string;amount:number;reason?:string;applied:boolean}[]>([]);
   const [payForm, setPayForm] = useState({ method: 'Bank Transfer', ref: '', date: new Date().toISOString().split('T')[0], notes: '', bank_last4: '' });
-  const [adjForm, setAdjForm] = useState({ overtime_pay: '', bonus: '', other_allowance: '', advance_deduction: '', other_deductions: '', payment_notes: '' });
+  const [adjForm, setAdjForm] = useState({ overtime_pay: '', bonus: '', advance_deduction: '', payment_notes: '' });
   const [pendingAdjs, setPendingAdjs] = useState<{ id: string; adj_type: string; amount: number; reason?: string }[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState('');
@@ -89,9 +89,7 @@ export default function PayrollPage() {
         const adjBody: Record<string, unknown> = {
           overtime_pay:      Math.max(0, (selectedPay.overtime_pay      || 0) - appliedSum('overtime'))  + sum('overtime'),
           bonus:             Math.max(0, (selectedPay.bonus             || 0) - appliedSum('bonus'))      + sum('bonus'),
-          other_allowance:   Math.max(0, (selectedPay.other_allowance   || 0) - appliedSum('allowance')) + sum('allowance'),
-          advance_deduction: Math.max(0, (selectedPay.advance_deduction || 0) - appliedSum('advance'))   + sum('advance'),
-          other_deductions:  Math.max(0, (selectedPay.other_deductions  || 0) - appliedSum('deduction')) + sum('deduction'),
+          advance_deduction: Math.max(0, (selectedPay.advance_deduction || 0) - appliedSum('advance')) + sum('advance'),
           adj_ids: pendingForPay.map(a => a.id),
         };
         const adjUpdate = await fetch(`/api/payroll/${selectedPay.id}`, {
@@ -128,9 +126,7 @@ export default function PayrollPage() {
       const body: Record<string, unknown> = {
         overtime_pay:      parseFloat(adjForm.overtime_pay)      || 0,
         bonus:             parseFloat(adjForm.bonus)             || 0,
-        other_allowance:   parseFloat(adjForm.other_allowance)   || 0,
         advance_deduction: parseFloat(adjForm.advance_deduction) || 0,
-        other_deductions:  parseFloat(adjForm.other_deductions)  || 0,
         payment_notes:     adjForm.payment_notes,
       };
       if (pendingAdjs.length > 0) body.adj_ids = pendingAdjs.map(a => a.id);
@@ -231,46 +227,58 @@ export default function PayrollPage() {
     doc.text('Salary Breakdown', 14, y + 6); y += 10;
 
     const pdfEarnings: string[][] = [
-      ['Basic Salary',  formatCurrency(selectedPay.basic_salary)],
-      ['HRA',           formatCurrency(selectedPay.hra)],
-      ['Conveyance',    formatCurrency(selectedPay.conveyance)],
-      ...(selectedPay.overtime_pay    > 0 ? [['Overtime Pay',    formatCurrency(selectedPay.overtime_pay)]]    : []),
-      ...(selectedPay.bonus           > 0 ? [['Bonus',           formatCurrency(selectedPay.bonus)]]           : []),
-      ...(selectedPay.other_allowance > 0 ? [['Other Allowance', formatCurrency(selectedPay.other_allowance)]] : []),
+      ['Basic Salary', formatCurrency(selectedPay.basic_salary)],
+      ...(selectedPay.hra          > 0 ? [['HRA',          formatCurrency(selectedPay.hra)]]          : []),
+      ...(selectedPay.conveyance   > 0 ? [['Conveyance',   formatCurrency(selectedPay.conveyance)]]   : []),
+      ...(selectedPay.overtime_pay > 0 ? [['Overtime Pay', formatCurrency(selectedPay.overtime_pay)]] : []),
+      ...(selectedPay.bonus        > 0 ? [['Bonus',        formatCurrency(selectedPay.bonus)]]        : []),
     ];
     const pdfDeductions: string[][] = [
-      ['PF (Employee)',     formatCurrency(selectedPay.pf_employee)],
-      ['Professional Tax',  formatCurrency(selectedPay.professional_tax)],
-      ['Advance Deduction', formatCurrency(selectedPay.advance_deduction)],
-      ...(selectedPay.other_deductions > 0 ? [['Other Deductions', formatCurrency(selectedPay.other_deductions)]] : []),
-      ...(selectedPay.leave_deductions > 0 ? [['Leave Deductions',  formatCurrency(selectedPay.leave_deductions)]]  : []),
+      ...(selectedPay.advance_deduction > 0 ? [['Advance Deduction', formatCurrency(selectedPay.advance_deduction)]] : []),
+      ...(selectedPay.leave_deductions  > 0 ? [['Leave Deductions',  formatCurrency(selectedPay.leave_deductions)]]  : []),
     ];
-    const pdfMaxRows = Math.max(pdfEarnings.length, pdfDeductions.length);
-    const pdfSideRows: string[][] = Array.from({ length: pdfMaxRows }, (_, i) => [
-      pdfEarnings[i]?.[0] ?? '', pdfEarnings[i]?.[1] ?? '',
-      pdfDeductions[i]?.[0] ?? '', pdfDeductions[i]?.[1] ?? '',
-    ]);
-    pdfSideRows.push(['GROSS EARNINGS', formatCurrency(selectedPay.gross_earnings), 'TOTAL DEDUCTIONS', formatCurrency(selectedPay.total_deductions)]);
-
-    autoTable(doc, {
-      startY: y,
-      head: [['Earnings', 'Amount', 'Deductions', 'Amount']],
-      body: pdfSideRows,
-      foot: [['NET PAY (TAKE HOME)', formatCurrency(selectedPay.net_pay), '', '']],
-      theme: 'grid', styles: { fontSize: 9 },
-      headStyles: { fillColor: [27, 168, 154] },
-      footStyles: { fillColor: [230, 246, 245], textColor: [27, 168, 154], fontStyle: 'bold', fontSize: 10 },
-      didParseCell: (data) => {
-        if (data.section === 'body' && data.row.raw) {
-          const row = data.row.raw as string[];
-          if (row[0] === 'GROSS EARNINGS' || row[2] === 'TOTAL DEDUCTIONS') {
-            data.cell.styles.fontStyle = 'bold';
-            if (data.column.index <= 1) data.cell.styles.textColor = [22, 163, 74];
-            else data.cell.styles.textColor = [220, 38, 38];
+    const pdfHasD = pdfDeductions.length > 0;
+    if (pdfHasD) {
+      const pdfMaxRows = Math.max(pdfEarnings.length, pdfDeductions.length);
+      const pdfSideRows: string[][] = Array.from({ length: pdfMaxRows }, (_, i) => [
+        pdfEarnings[i]?.[0] ?? '', pdfEarnings[i]?.[1] ?? '',
+        pdfDeductions[i]?.[0] ?? '', pdfDeductions[i]?.[1] ?? '',
+      ]);
+      pdfSideRows.push(['GROSS EARNINGS', formatCurrency(selectedPay.gross_earnings), 'TOTAL DEDUCTIONS', formatCurrency(selectedPay.total_deductions)]);
+      autoTable(doc, {
+        startY: y,
+        head: [['Earnings', 'Amount', 'Deductions', 'Amount']],
+        body: pdfSideRows,
+        foot: [['NET PAY (TAKE HOME)', formatCurrency(selectedPay.net_pay), '', '']],
+        theme: 'grid', styles: { fontSize: 9 },
+        headStyles: { fillColor: [27, 168, 154] },
+        footStyles: { fillColor: [230, 246, 245], textColor: [27, 168, 154], fontStyle: 'bold', fontSize: 10 },
+        didParseCell: (data) => {
+          if (data.section === 'body' && data.row.raw) {
+            const row = data.row.raw as string[];
+            if (row[0] === 'GROSS EARNINGS') { data.cell.styles.fontStyle = 'bold'; data.cell.styles.textColor = [22, 163, 74]; }
+            if (row[2] === 'TOTAL DEDUCTIONS') { data.cell.styles.fontStyle = 'bold'; data.cell.styles.textColor = [220, 38, 38]; }
           }
-        }
-      },
-    });
+        },
+      });
+    } else {
+      const pdfRows = pdfEarnings.concat([['GROSS EARNINGS', formatCurrency(selectedPay.gross_earnings)]]);
+      autoTable(doc, {
+        startY: y,
+        head: [['Earnings', 'Amount']],
+        body: pdfRows,
+        foot: [['NET PAY (TAKE HOME)', formatCurrency(selectedPay.net_pay)]],
+        theme: 'grid', styles: { fontSize: 9 },
+        headStyles: { fillColor: [27, 168, 154] },
+        footStyles: { fillColor: [230, 246, 245], textColor: [27, 168, 154], fontStyle: 'bold', fontSize: 10 },
+        didParseCell: (data) => {
+          if (data.section === 'body' && data.row.raw) {
+            const row = data.row.raw as string[];
+            if (row[0] === 'GROSS EARNINGS') { data.cell.styles.fontStyle = 'bold'; data.cell.styles.textColor = [22, 163, 74]; }
+          }
+        },
+      });
+    }
 
     // Payment details if paid
     if (selectedPay.status === 'paid') {
@@ -392,7 +400,7 @@ export default function PayrollPage() {
                       <td>{p.overtime_pay ? <span style={{ color: 'var(--success)' }}>+{formatCurrency(p.overtime_pay)}</span> : '—'}</td>
                       <td>{p.bonus ? <span style={{ color: 'var(--success)' }}>+{formatCurrency(p.bonus)}</span> : '—'}</td>
                       <td>{(() => {
-                        const ded = (p.total_deductions || 0) || ((p.pf_employee || 0) + (p.professional_tax || 0) + (p.advance_deduction || 0) + (p.other_deductions || 0));
+                        const ded = (p.total_deductions || 0) || (p.advance_deduction || 0);
                         return ded > 0
                           ? <span style={{ color: 'var(--danger)' }}>-{formatCurrency(ded)}</span>
                           : '—';
@@ -475,22 +483,12 @@ export default function PayrollPage() {
                   <input className="form-input" type="number" min="0" placeholder="0" value={adjForm.bonus} onChange={e => setAdjForm(f => ({ ...f, bonus: e.target.value }))} />
                 </div>
               </div>
-              <div className="form-group">
-                <label className="form-label">Other Allowance</label>
-                <input className="form-input" type="number" min="0" placeholder="0" value={adjForm.other_allowance} onChange={e => setAdjForm(f => ({ ...f, other_allowance: e.target.value }))} />
-              </div>
 
               {/* Deductions */}
               <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--danger)', marginBottom: -6 }}>− Deductions</div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label className="form-label">Advance Deduction</label>
-                  <input className="form-input" type="number" min="0" placeholder="0" value={adjForm.advance_deduction} onChange={e => setAdjForm(f => ({ ...f, advance_deduction: e.target.value }))} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Other Deductions</label>
-                  <input className="form-input" type="number" min="0" placeholder="0" value={adjForm.other_deductions} onChange={e => setAdjForm(f => ({ ...f, other_deductions: e.target.value }))} />
-                </div>
+              <div className="form-group">
+                <label className="form-label">Advance Deduction</label>
+                <input className="form-input" type="number" min="0" placeholder="0" value={adjForm.advance_deduction} onChange={e => setAdjForm(f => ({ ...f, advance_deduction: e.target.value }))} />
               </div>
 
               <div className="form-group">
@@ -502,11 +500,9 @@ export default function PayrollPage() {
               {(() => {
                 const ot = parseFloat(adjForm.overtime_pay) || selectedPay.overtime_pay || 0;
                 const bonus = parseFloat(adjForm.bonus) || selectedPay.bonus || 0;
-                const oa = parseFloat(adjForm.other_allowance) || selectedPay.other_allowance || 0;
                 const adv = parseFloat(adjForm.advance_deduction) || selectedPay.advance_deduction || 0;
-                const od = parseFloat(adjForm.other_deductions) || selectedPay.other_deductions || 0;
-                const gross = (selectedPay.basic_salary || 0) + (selectedPay.hra || 0) + (selectedPay.conveyance || 0) + ot + bonus + oa;
-                const ded = (selectedPay.pf_employee || 0) + (selectedPay.professional_tax || 0) + adv + od;
+                const gross = (selectedPay.basic_salary || 0) + (selectedPay.hra || 0) + (selectedPay.conveyance || 0) + ot + bonus;
+                const ded = adv;
                 const net = gross - ded;
                 return (
                   <div style={{ background: 'var(--primary-light)', border: '1.5px solid var(--primary)', borderRadius: 8, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -636,61 +632,60 @@ export default function PayrollPage() {
                 {/* Salary breakdown — side-by-side table */}
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>💰 Salary Breakdown</div>
-                  <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                      <thead>
-                        <tr style={{ background: 'var(--primary)', color: '#fff' }}>
-                          <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, width: '30%' }}>Earnings</th>
-                          <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, width: '20%' }}>Amount</th>
-                          <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, width: '30%' }}>Deductions</th>
-                          <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, width: '20%' }}>Amount</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(() => {
-                          const eRows = [
-                            { label: 'Basic Salary',   value: selectedPay.basic_salary },
-                            { label: 'HRA',            value: selectedPay.hra },
-                            { label: 'Conveyance',     value: selectedPay.conveyance },
-                            ...(selectedPay.overtime_pay    > 0 ? [{ label: 'Overtime Pay',    value: selectedPay.overtime_pay }]    : []),
-                            ...(selectedPay.bonus           > 0 ? [{ label: 'Bonus',           value: selectedPay.bonus }]           : []),
-                            ...(selectedPay.other_allowance > 0 ? [{ label: 'Other Allowance', value: selectedPay.other_allowance }] : []),
-                          ];
-                          const dRows = [
-                            { label: 'PF (Employee)',    value: selectedPay.pf_employee },
-                            { label: 'Professional Tax', value: selectedPay.professional_tax },
-                            { label: 'Advance Deduction',value: selectedPay.advance_deduction },
-                            ...(selectedPay.other_deductions > 0 ? [{ label: 'Other Deductions', value: selectedPay.other_deductions }] : []),
-                            ...(selectedPay.leave_deductions > 0 ? [{ label: 'Leave Deductions',  value: selectedPay.leave_deductions }]  : []),
-                          ];
-                          const maxR = Math.max(eRows.length, dRows.length);
-                          return Array.from({ length: maxR }, (_, i) => {
-                            const e = eRows[i]; const d = dRows[i];
-                            return (
-                              <tr key={i} style={{ background: i % 2 === 0 ? 'var(--bg)' : 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-                                <td style={{ padding: '7px 12px', color: 'var(--primary)', fontWeight: 500 }}>{e?.label ?? ''}</td>
-                                <td style={{ padding: '7px 12px', textAlign: 'right' }}>{e ? formatCurrency(e.value) : ''}</td>
-                                <td style={{ padding: '7px 12px', color: 'var(--primary)', fontWeight: 500 }}>{d?.label ?? ''}</td>
-                                <td style={{ padding: '7px 12px', textAlign: 'right' }}>{d ? formatCurrency(d.value) : ''}</td>
-                              </tr>
-                            );
-                          });
-                        })()}
-                        <tr style={{ borderTop: '2px solid var(--border)', background: 'var(--surface)' }}>
-                          <td style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--success)' }}>Gross Earnings</td>
-                          <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: 'var(--success)' }}>{formatCurrency(selectedPay.gross_earnings)}</td>
-                          <td style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--danger)' }}>Total Deductions</td>
-                          <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: 'var(--danger)' }}>{formatCurrency(selectedPay.total_deductions)}</td>
-                        </tr>
-                      </tbody>
-                      <tfoot>
-                        <tr style={{ background: 'var(--primary-light)', borderTop: '2px solid var(--primary)' }}>
-                          <td colSpan={2} style={{ padding: '10px 12px', fontWeight: 700, color: 'var(--primary)', fontSize: 13 }}>NET PAY (TAKE HOME)</td>
-                          <td colSpan={2} style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: 'var(--primary)', fontSize: 16 }}>{formatCurrency(selectedPay.net_pay)}</td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
+                  {(() => {
+                    const eRows = [
+                      { label: 'Basic Salary', value: selectedPay.basic_salary },
+                      ...(selectedPay.hra          > 0 ? [{ label: 'HRA',          value: selectedPay.hra }]          : []),
+                      ...(selectedPay.conveyance   > 0 ? [{ label: 'Conveyance',   value: selectedPay.conveyance }]   : []),
+                      ...(selectedPay.overtime_pay > 0 ? [{ label: 'Overtime Pay', value: selectedPay.overtime_pay }] : []),
+                      ...(selectedPay.bonus        > 0 ? [{ label: 'Bonus',        value: selectedPay.bonus }]        : []),
+                    ];
+                    const dRows = [
+                      ...(selectedPay.advance_deduction > 0 ? [{ label: 'Advance Deduction', value: selectedPay.advance_deduction }] : []),
+                      ...(selectedPay.leave_deductions  > 0 ? [{ label: 'Leave Deductions',  value: selectedPay.leave_deductions }]  : []),
+                    ];
+                    const hasD = dRows.length > 0;
+                    const maxR = Math.max(eRows.length, dRows.length);
+                    return (
+                      <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                          <thead>
+                            <tr style={{ background: 'var(--primary)', color: '#fff' }}>
+                              <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, width: hasD ? '30%' : '60%' }}>Earnings</th>
+                              <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, width: hasD ? '20%' : '40%' }}>Amount</th>
+                              {hasD && <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, width: '30%' }}>Deductions</th>}
+                              {hasD && <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, width: '20%' }}>Amount</th>}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Array.from({ length: maxR }, (_, i) => {
+                              const e = eRows[i]; const d = dRows[i];
+                              return (
+                                <tr key={i} style={{ background: i % 2 === 0 ? 'var(--bg)' : 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+                                  <td style={{ padding: '7px 12px', color: 'var(--primary)', fontWeight: 500 }}>{e?.label ?? ''}</td>
+                                  <td style={{ padding: '7px 12px', textAlign: 'right' }}>{e ? formatCurrency(e.value) : ''}</td>
+                                  {hasD && <td style={{ padding: '7px 12px', color: 'var(--primary)', fontWeight: 500 }}>{d?.label ?? ''}</td>}
+                                  {hasD && <td style={{ padding: '7px 12px', textAlign: 'right' }}>{d ? formatCurrency(d.value) : ''}</td>}
+                                </tr>
+                              );
+                            })}
+                            <tr style={{ borderTop: '2px solid var(--border)', background: 'var(--surface)' }}>
+                              <td style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--success)' }}>Gross Earnings</td>
+                              <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: 'var(--success)' }}>{formatCurrency(selectedPay.gross_earnings)}</td>
+                              {hasD && <td style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--danger)' }}>Total Deductions</td>}
+                              {hasD && <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: 'var(--danger)' }}>{formatCurrency(selectedPay.total_deductions)}</td>}
+                            </tr>
+                          </tbody>
+                          <tfoot>
+                            <tr style={{ background: 'var(--primary-light)', borderTop: '2px solid var(--primary)' }}>
+                              <td colSpan={hasD ? 2 : 1} style={{ padding: '10px 12px', fontWeight: 700, color: 'var(--primary)', fontSize: 13 }}>NET PAY (TAKE HOME)</td>
+                              <td colSpan={hasD ? 2 : 1} style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: 'var(--primary)', fontSize: 16 }}>{formatCurrency(selectedPay.net_pay)}</td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Payment info if paid */}

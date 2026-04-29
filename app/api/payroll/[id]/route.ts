@@ -38,18 +38,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (body.bonus !== undefined) updateData.bonus = body.bonus;
     if (body.overtime_pay !== undefined) updateData.overtime_pay = body.overtime_pay;
     if (body.advance_deduction !== undefined) updateData.advance_deduction = body.advance_deduction;
-    if (body.other_allowance !== undefined) updateData.other_allowance = body.other_allowance;
-    if (body.other_deductions !== undefined) updateData.other_deductions = body.other_deductions;
     if (body.payment_notes !== undefined) updateData.payment_notes = body.payment_notes;
 
     // Recalculate totals
     const gross = (payroll.basic_salary || 0) + (payroll.hra || 0) + (payroll.conveyance || 0)
       + (body.overtime_pay ?? payroll.overtime_pay ?? 0)
-      + (body.bonus ?? payroll.bonus ?? 0)
-      + (body.other_allowance ?? payroll.other_allowance ?? 0);
-    const ded = (payroll.pf_employee || 0) + (payroll.professional_tax || 0)
-      + (body.advance_deduction ?? payroll.advance_deduction ?? 0)
-      + (body.other_deductions ?? payroll.other_deductions ?? 0);
+      + (body.bonus ?? payroll.bonus ?? 0);
+    const ded = (body.advance_deduction ?? payroll.advance_deduction ?? 0);
     updateData.gross_earnings = gross;
     updateData.total_deductions = ded;
     updateData.net_pay = gross - ded;
