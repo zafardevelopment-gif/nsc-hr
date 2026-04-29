@@ -4,26 +4,13 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import toast from 'react-hot-toast';
 
-const DEMO_CREDS = {
-  admin:    { username: 'admin',  password: 'admin123' },
-  employee: { username: 'rahul',  password: 'emp123'   },
-};
-
 export default function LoginPage() {
   const router = useRouter();
-  const [role, setRole] = useState<'admin' | 'employee'>('admin');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showPw, setShowPw] = useState(false);
-
-  function autoFill() {
-    const creds = DEMO_CREDS[role];
-    setUsername(creds.username);
-    setPassword(creds.password);
-    toast.success(`Demo credentials filled for ${role}`);
-  }
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -59,15 +46,16 @@ export default function LoginPage() {
     <div className="auth-page">
       {/* Left panel */}
       <div className="auth-left">
-        {/* Background decoration */}
         <div style={{ position: 'absolute', top: -80, right: -80, width: 300, height: 300, borderRadius: '50%', background: 'rgba(59,111,232,0.15)' }} />
         <div style={{ position: 'absolute', bottom: -60, left: -60, width: 200, height: 200, borderRadius: '50%', background: 'rgba(59,111,232,0.1)' }} />
         <div style={{ position: 'relative', zIndex: 1, textAlign: 'center' }}>
-          <div style={{ width: 64, height: 64, background: 'var(--primary)', borderRadius: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px', fontSize: 28, fontWeight: 800, color: '#fff' }}>N</div>
+          {/* NSC Logo */}
+          <div style={{ margin: '0 auto 24px', background: '#fff', borderRadius: 16, padding: '10px 16px', display: 'inline-block' }}>
+            <img src="/nsc-logo.png" alt="NSC Logo" style={{ height: 56, width: 'auto', display: 'block' }} />
+          </div>
           <div style={{ color: '#fff', fontSize: 28, fontWeight: 800, marginBottom: 8 }}>NSC Employee</div>
           <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 15, marginBottom: 40, maxWidth: 300 }}>Complete HR & Payroll Management System</div>
 
-          {/* Feature list */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 280, textAlign: 'left' }}>
             {[
               ['👥', 'Employee Management', 'Manage permanent & part-time staff'],
@@ -91,38 +79,25 @@ export default function LoginPage() {
       {/* Right panel — form */}
       <div className="auth-right">
         <div className="auth-form-wrap">
-          <div style={{ marginBottom: 28 }}>
-            <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--text)', marginBottom: 6 }}>Welcome back</div>
-            <div style={{ fontSize: 14, color: 'var(--text-2)' }}>Sign in to your account to continue</div>
-          </div>
-
-          {/* Role toggle */}
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-2)', marginBottom: 8 }}>Login as</div>
-            <div className="toggle-group">
-              <button className={`toggle-btn ${role === 'admin' ? 'active' : ''}`} type="button" onClick={() => { setRole('admin'); setUsername(''); setPassword(''); }}>
-                🏢 Admin
-              </button>
-              <button className={`toggle-btn ${role === 'employee' ? 'active' : ''}`} type="button" onClick={() => { setRole('employee'); setUsername(''); setPassword(''); }}>
-                👤 Employee
-              </button>
+          {/* Logo on form side */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 28 }}>
+            <img src="/nsc-logo.png" alt="NSC Logo" style={{ height: 40, width: 'auto' }} />
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', lineHeight: 1.2 }}>Welcome back</div>
+              <div style={{ fontSize: 13, color: 'var(--text-2)' }}>Sign in to continue</div>
             </div>
           </div>
 
           <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div className="form-group">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <label className="form-label" style={{ marginBottom: 0 }}>Username</label>
-                <button type="button" onClick={autoFill} style={{ fontSize: 12, color: 'var(--primary)', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                  ✨ Auto-fill demo
-                </button>
-              </div>
+              <label className="form-label">Username</label>
               <input
                 className="form-input"
-                placeholder={role === 'admin' ? 'admin' : 'your.username'}
+                placeholder="Enter your username"
                 value={username}
                 onChange={e => setUsername(e.target.value)}
                 autoComplete="username"
+                autoFocus
               />
             </div>
 
@@ -163,23 +138,8 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          {/* Demo info */}
-          <div style={{ marginTop: 24, background: 'var(--bg)', borderRadius: 10, padding: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>Demo Credentials</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                <span style={{ color: 'var(--text-2)' }}>Admin login:</span>
-                <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>admin / admin123</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                <span style={{ color: 'var(--text-2)' }}>Employee login:</span>
-                <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>rahul / emp123</span>
-              </div>
-            </div>
-          </div>
-
-          <div style={{ marginTop: 20, fontSize: 12, color: 'var(--text-3)', textAlign: 'center' }}>
-            NSC Employee HR System · v1.0 · Built with Next.js
+          <div style={{ marginTop: 24, fontSize: 12, color: 'var(--text-3)', textAlign: 'center' }}>
+            NSC Employee HR System · v1.0
           </div>
         </div>
       </div>
