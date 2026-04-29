@@ -138,6 +138,40 @@ export interface ActivityLog {
   created_at?: string;
 }
 
+export interface EmployeeDocument {
+  id: string;
+  employee_id: string;
+  document_type: 'iqama' | 'passport' | 'national_id' | 'driving_license' | 'work_permit' | 'visa' | 'other';
+  number: string;
+  issue_date?: string;
+  expiry_date?: string;
+  file_url?: string;
+  file_name?: string;
+  notes?: string;
+  status: 'active' | 'expiring' | 'expired';
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
+  employee?: Employee;
+}
+
+export interface FinanceEntry {
+  id: string;
+  type: 'earning' | 'expense';
+  date: string;
+  description: string;
+  amount: number;
+  received_from?: string;
+  paid_to?: string;
+  category?: string;
+  payment_mode?: 'cash' | 'bank_transfer' | 'cheque' | 'online' | 'other';
+  reference?: string;
+  notes?: string;
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface AuthSession {
   user: User;
   token: string;

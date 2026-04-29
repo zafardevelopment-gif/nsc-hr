@@ -10,6 +10,7 @@ const EMP_ITEMS = [
   { href: '/employee/leave',         icon: '🗓️', label: 'Leave' },
   { href: '/employee/salary',        icon: '📊', label: 'My Salary' },
   { href: '/employee/payslip',       icon: '💰', label: 'Payslips' },
+  { href: '/employee/documents',     icon: '🪪', label: 'My Documents' },
   { href: '/employee/notifications', icon: '🔔', label: 'Notifications' },
 ];
 
