@@ -58,6 +58,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const { data, error } = await db.from('NSC_HR_payroll').update(updateData).eq('id', id).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  // Mark linked adjustments as applied
+  if (body.adj_ids && Array.isArray(body.adj_ids) && body.adj_ids.length > 0) {
+    await db.from('NSC_HR_adjustments')
+      .update({ applied: true, updated_at: new Date().toISOString() })
+      .in('id', body.adj_ids);
+  }
+
   await db.from('NSC_HR_activity_logs').insert({
     user_id: session.id, action: body.action === 'mark_paid' ? 'MARK_PAYROLL_PAID' : 'UPDATE_PAYROLL',
     entity_type: 'payroll', entity_id: id,

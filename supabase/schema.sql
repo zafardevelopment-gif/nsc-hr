@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS "NSC_HR_employees" (
   salary_type     VARCHAR(20) CHECK (salary_type IN ('monthly', 'hourly', 'fixed')),
   monthly_salary  NUMERIC(12,2),
   hourly_rate     NUMERIC(8,2),
+  id_type         VARCHAR(20) CHECK (id_type IN ('iqama', 'passport', 'national_id')),
+  id_number       VARCHAR(50),
+  id_expiry       DATE,
   active          BOOLEAN DEFAULT true,
   notes           TEXT,
   created_at      TIMESTAMPTZ DEFAULT NOW(),
@@ -135,6 +138,24 @@ CREATE TABLE IF NOT EXISTS "NSC_HR_notifications" (
   created_by      UUID REFERENCES "NSC_HR_users"(id),
   created_at      TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- ─── Adjustments (Bonus / Overtime / Deductions per employee per month) ───
+CREATE TABLE IF NOT EXISTS "NSC_HR_adjustments" (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_id     UUID NOT NULL REFERENCES "NSC_HR_employees"(id) ON DELETE CASCADE,
+  adj_month       VARCHAR(7) NOT NULL,           -- YYYY-MM
+  adj_type        VARCHAR(20) NOT NULL CHECK (adj_type IN ('bonus', 'overtime', 'allowance', 'deduction', 'advance')),
+  amount          NUMERIC(12,2) NOT NULL,
+  reason          TEXT,
+  applied         BOOLEAN DEFAULT false,         -- true once payroll is generated
+  created_by      UUID REFERENCES "NSC_HR_users"(id),
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_adjustments_employee ON "NSC_HR_adjustments"(employee_id);
+CREATE INDEX IF NOT EXISTS idx_adjustments_month    ON "NSC_HR_adjustments"(adj_month);
+CREATE INDEX IF NOT EXISTS idx_adjustments_applied  ON "NSC_HR_adjustments"(applied);
 
 -- ─── Departments ───
 CREATE TABLE IF NOT EXISTS "NSC_HR_departments" (

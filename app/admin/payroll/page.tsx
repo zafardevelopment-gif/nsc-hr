@@ -11,6 +11,8 @@ import { Pagination } from '@/components/ui/Pagination';
 import { formatCurrency, getMonthOptions, getPayrollMonthLabel } from '@/lib/utils';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 export default function PayrollPage() {
   const { user } = useUser();
@@ -23,9 +25,13 @@ export default function PayrollPage() {
   });
   const [showPayModal, setShowPayModal] = useState(false);
   const [showAdjModal, setShowAdjModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedPay, setSelectedPay] = useState<Payroll | null>(null);
+  const [detailEntries, setDetailEntries] = useState<{id:string;entry_date:string;total_hours:number;adjusted_hours?:number;task_description?:string;status:string}[]>([]);
+  const [detailAdjs, setDetailAdjs] = useState<{id:string;adj_type:string;amount:number;reason?:string;applied:boolean}[]>([]);
   const [payForm, setPayForm] = useState({ method: 'Bank Transfer', ref: '', date: new Date().toISOString().split('T')[0], notes: '', bank_last4: '' });
   const [adjForm, setAdjForm] = useState({ overtime_pay: '', bonus: '', other_allowance: '', advance_deduction: '', other_deductions: '', payment_notes: '' });
+  const [pendingAdjs, setPendingAdjs] = useState<{ id: string; adj_type: string; amount: number; reason?: string }[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -68,6 +74,36 @@ export default function PayrollPage() {
     if (!selectedPay) return;
     setSubmitting(true);
     try {
+      // Fetch any pending adjustments not yet applied
+      const adjRes = await fetch(`/api/adjustments?empId=${selectedPay.employee_id}&month=${selectedPay.payroll_month}&applied=false`);
+      const adjJson = await adjRes.json();
+      const pendingForPay: { id: string; adj_type: string; amount: number }[] = adjJson.data || [];
+
+      // If there are pending adjustments, apply them first
+      if (pendingForPay.length > 0) {
+        const sum = (type: string) => pendingForPay.filter(a => a.adj_type === type).reduce((s, a) => s + a.amount, 0);
+        // Fetch already-applied to get true base values
+        const appliedRes = await fetch(`/api/adjustments?empId=${selectedPay.employee_id}&month=${selectedPay.payroll_month}&applied=true`).then(r => r.json());
+        const alreadyApplied: { adj_type: string; amount: number }[] = appliedRes.data || [];
+        const appliedSum = (type: string) => alreadyApplied.filter(a => a.adj_type === type).reduce((s, a) => s + a.amount, 0);
+        const adjBody: Record<string, unknown> = {
+          overtime_pay:      Math.max(0, (selectedPay.overtime_pay      || 0) - appliedSum('overtime'))  + sum('overtime'),
+          bonus:             Math.max(0, (selectedPay.bonus             || 0) - appliedSum('bonus'))      + sum('bonus'),
+          other_allowance:   Math.max(0, (selectedPay.other_allowance   || 0) - appliedSum('allowance')) + sum('allowance'),
+          advance_deduction: Math.max(0, (selectedPay.advance_deduction || 0) - appliedSum('advance'))   + sum('advance'),
+          other_deductions:  Math.max(0, (selectedPay.other_deductions  || 0) - appliedSum('deduction')) + sum('deduction'),
+          adj_ids: pendingForPay.map(a => a.id),
+        };
+        const adjUpdate = await fetch(`/api/payroll/${selectedPay.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(adjBody),
+        });
+        const adjUpdateJson = await adjUpdate.json();
+        if (adjUpdateJson.error) throw new Error(adjUpdateJson.error);
+      }
+
+      // Now mark paid
       const res = await fetch(`/api/payroll/${selectedPay.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -89,13 +125,15 @@ export default function PayrollPage() {
     if (!selectedPay) return;
     setSubmitting(true);
     try {
-      const body: Record<string, number | string> = {};
-      if (adjForm.overtime_pay !== '')    body.overtime_pay = parseFloat(adjForm.overtime_pay) || 0;
-      if (adjForm.bonus !== '')           body.bonus = parseFloat(adjForm.bonus) || 0;
-      if (adjForm.other_allowance !== '') body.other_allowance = parseFloat(adjForm.other_allowance) || 0;
-      if (adjForm.advance_deduction !== '') body.advance_deduction = parseFloat(adjForm.advance_deduction) || 0;
-      if (adjForm.other_deductions !== '') body.other_deductions = parseFloat(adjForm.other_deductions) || 0;
-      if (adjForm.payment_notes !== '')   body.payment_notes = adjForm.payment_notes;
+      const body: Record<string, unknown> = {
+        overtime_pay:      parseFloat(adjForm.overtime_pay)      || 0,
+        bonus:             parseFloat(adjForm.bonus)             || 0,
+        other_allowance:   parseFloat(adjForm.other_allowance)   || 0,
+        advance_deduction: parseFloat(adjForm.advance_deduction) || 0,
+        other_deductions:  parseFloat(adjForm.other_deductions)  || 0,
+        payment_notes:     adjForm.payment_notes,
+      };
+      if (pendingAdjs.length > 0) body.adj_ids = pendingAdjs.map(a => a.id);
 
       const res = await fetch(`/api/payroll/${selectedPay.id}`, {
         method: 'PUT',
@@ -104,12 +142,146 @@ export default function PayrollPage() {
       });
       const json = await res.json();
       if (json.error) throw new Error(json.error);
-      toast.success('Payroll adjusted successfully');
+
+      toast.success('Payroll adjusted & deduction applied');
       setShowAdjModal(false);
+      setPendingAdjs([]);
       load();
     } catch (e: unknown) {
       toast.error((e as Error).message);
     } finally { setSubmitting(false); }
+  }
+
+  function downloadDetailPDF() {
+    if (!selectedPay) return;
+    const emp = selectedPay.employee as { full_name: string; employee_code: string; department: string; emp_type: string; salary_type?: string; hourly_rate?: number } | undefined;
+    const doc = new jsPDF();
+
+    // Header bar
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, 210, 38, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(16); doc.setFont('helvetica', 'bold');
+    doc.text('NSC Employee — Payroll Details', 14, 16);
+    doc.setFontSize(10); doc.setFont('helvetica', 'normal');
+    doc.text(`${getPayrollMonthLabel(selectedPay.payroll_month)}  ·  Status: ${selectedPay.status.toUpperCase()}`, 14, 28);
+    doc.text(`Generated: ${new Date().toLocaleDateString('en-SA')}`, 196, 28, { align: 'right' });
+
+    // Employee info
+    doc.setTextColor(0, 0, 0);
+    autoTable(doc, {
+      startY: 46,
+      head: [['Employee', 'Code', 'Department', 'Type']],
+      body: [[emp?.full_name || '—', emp?.employee_code || '—', emp?.department || '—', emp?.emp_type || '—']],
+      theme: 'striped', styles: { fontSize: 9 },
+      headStyles: { fillColor: [59, 111, 232] },
+    });
+
+    let y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+
+    // Work entries
+    if (detailEntries.length > 0) {
+      doc.setFontSize(11); doc.setFont('helvetica', 'bold');
+      doc.text('Approved Work Entries', 14, y + 6); y += 10;
+      const totalHours = detailEntries.reduce((s, e) => s + (e.adjusted_hours || e.total_hours), 0);
+      autoTable(doc, {
+        startY: y,
+        head: [['Date', 'Hours', 'Task Description']],
+        body: detailEntries.map(e => [
+          new Date(e.entry_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'short', year: 'numeric' }),
+          (e.adjusted_hours || e.total_hours).toFixed(2) + (e.adjusted_hours && e.adjusted_hours !== e.total_hours ? ` (orig: ${e.total_hours.toFixed(2)})` : ''),
+          e.task_description || '—',
+        ]),
+        foot: [['', `Total: ${totalHours.toFixed(2)} hrs`, '']],
+        theme: 'grid', styles: { fontSize: 8 },
+        headStyles: { fillColor: [59, 111, 232] },
+        footStyles: { fillColor: [240, 244, 255], textColor: [30, 60, 180], fontStyle: 'bold' },
+      });
+      y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+    }
+
+    // Adjustments
+    if (detailAdjs.length > 0) {
+      doc.setFontSize(11); doc.setFont('helvetica', 'bold');
+      doc.text('Adjustments', 14, y + 6); y += 10;
+      autoTable(doc, {
+        startY: y,
+        head: [['Type', 'Amount', 'Reason', 'Status']],
+        body: detailAdjs.map(a => [
+          a.adj_type.charAt(0).toUpperCase() + a.adj_type.slice(1),
+          ((['deduction','advance'].includes(a.adj_type) ? '−' : '+') + formatCurrency(a.amount)),
+          a.reason || '—',
+          a.applied ? 'Applied' : 'Pending',
+        ]),
+        theme: 'grid', styles: { fontSize: 8 },
+        headStyles: { fillColor: [59, 111, 232] },
+      });
+      y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+    }
+
+    // Salary breakdown
+    doc.setFontSize(11); doc.setFont('helvetica', 'bold');
+    doc.text('Salary Breakdown', 14, y + 6); y += 10;
+    const earningsRows: string[][] = [
+      ['Basic Salary', formatCurrency(selectedPay.basic_salary)],
+      ...(selectedPay.hra           > 0 ? [['HRA',               formatCurrency(selectedPay.hra)]] : []),
+      ...(selectedPay.conveyance    > 0 ? [['Conveyance',        formatCurrency(selectedPay.conveyance)]] : []),
+      ...(selectedPay.overtime_pay  > 0 ? [['Overtime Pay',      formatCurrency(selectedPay.overtime_pay)]] : []),
+      ...(selectedPay.bonus         > 0 ? [['Bonus',             formatCurrency(selectedPay.bonus)]] : []),
+      ...(selectedPay.other_allowance > 0 ? [['Other Allowance', formatCurrency(selectedPay.other_allowance)]] : []),
+      ['Gross Earnings', formatCurrency(selectedPay.gross_earnings)],
+      ...(selectedPay.pf_employee       > 0 ? [['− PF (Employee)',    formatCurrency(selectedPay.pf_employee)]] : []),
+      ...(selectedPay.professional_tax  > 0 ? [['− Professional Tax', formatCurrency(selectedPay.professional_tax)]] : []),
+      ...(selectedPay.advance_deduction > 0 ? [['− Advance Deduction',formatCurrency(selectedPay.advance_deduction)]] : []),
+      ...(selectedPay.other_deductions  > 0 ? [['− Other Deductions', formatCurrency(selectedPay.other_deductions)]] : []),
+      ...(selectedPay.leave_deductions  > 0 ? [['− Leave Deductions', formatCurrency(selectedPay.leave_deductions)]] : []),
+    ];
+    autoTable(doc, {
+      startY: y,
+      head: [['Component', 'Amount']],
+      body: earningsRows,
+      foot: [['NET PAY (TAKE HOME)', formatCurrency(selectedPay.net_pay)]],
+      theme: 'striped', styles: { fontSize: 9 },
+      headStyles: { fillColor: [59, 111, 232] },
+      footStyles: { fillColor: [238, 243, 253], textColor: [45, 88, 204], fontStyle: 'bold', fontSize: 10 },
+      didParseCell: (data) => {
+        if (data.section === 'body' && data.row.raw) {
+          const label = String((data.row.raw as string[])[0]);
+          if (label === 'Gross Earnings') { data.cell.styles.fontStyle = 'bold'; data.cell.styles.textColor = [22, 163, 74]; }
+          if (label.startsWith('−'))      { data.cell.styles.textColor = [220, 38, 38]; }
+        }
+      },
+    });
+
+    // Payment details if paid
+    if (selectedPay.status === 'paid') {
+      const py = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+      doc.setFontSize(11); doc.setFont('helvetica', 'bold');
+      doc.text('Payment Details', 14, py + 6);
+      autoTable(doc, {
+        startY: py + 10,
+        head: [['Payment Date', 'Method', 'Reference', 'Account']],
+        body: [[
+          selectedPay.payment_date ? new Date(selectedPay.payment_date).toLocaleDateString('en-SA') : '—',
+          selectedPay.payment_method || '—',
+          selectedPay.transaction_ref || '—',
+          selectedPay.bank_last4 ? `••••${selectedPay.bank_last4}` : '—',
+        ]],
+        theme: 'striped', styles: { fontSize: 9 },
+        headStyles: { fillColor: [59, 111, 232] },
+      });
+    }
+
+    // Footer
+    const pageCount = doc.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8); doc.setTextColor(150, 150, 150); doc.setFont('helvetica', 'normal');
+      doc.text('NSC HR System — Computer generated document', 105, 290, { align: 'center' });
+    }
+
+    doc.save(`payroll-detail-${selectedPay.payroll_month}-${emp?.full_name || 'employee'}.pdf`);
+    toast.success('PDF downloaded');
   }
 
   const total = payroll.reduce((s, p) => s + (p.net_pay || 0), 0);
@@ -200,25 +372,26 @@ export default function PayrollPage() {
                       <td>{p.basic_salary ? formatCurrency(p.basic_salary) : <span style={{ color: 'var(--text-3)' }}>Hourly</span>}</td>
                       <td>{p.overtime_pay ? <span style={{ color: 'var(--success)' }}>+{formatCurrency(p.overtime_pay)}</span> : '—'}</td>
                       <td>{p.bonus ? <span style={{ color: 'var(--success)' }}>+{formatCurrency(p.bonus)}</span> : '—'}</td>
-                      <td>{p.total_deductions ? <span style={{ color: 'var(--danger)' }}>-{formatCurrency(p.total_deductions)}</span> : '—'}</td>
+                      <td>{(() => {
+                        const ded = (p.total_deductions || 0) || ((p.pf_employee || 0) + (p.professional_tax || 0) + (p.advance_deduction || 0) + (p.other_deductions || 0));
+                        return ded > 0
+                          ? <span style={{ color: 'var(--danger)' }}>-{formatCurrency(ded)}</span>
+                          : '—';
+                      })()}</td>
                       <td><strong style={{ fontSize: 15 }}>{formatCurrency(p.net_pay)}</strong></td>
                       <td><Badge status={p.status} /></td>
                       <td>
                         <div style={{ display: 'flex', gap: 6 }}>
-                          {p.status !== 'paid' && (
-                            <Button variant="outline" size="xs" onClick={() => {
-                              setSelectedPay(p);
-                              setAdjForm({
-                                overtime_pay: p.overtime_pay ? String(p.overtime_pay) : '',
-                                bonus: p.bonus ? String(p.bonus) : '',
-                                other_allowance: p.other_allowance ? String(p.other_allowance) : '',
-                                advance_deduction: p.advance_deduction ? String(p.advance_deduction) : '',
-                                other_deductions: p.other_deductions ? String(p.other_deductions) : '',
-                                payment_notes: p.payment_notes || '',
-                              });
-                              setShowAdjModal(true);
-                            }}>Adjust</Button>
-                          )}
+                          <Button variant="ghost" size="xs" onClick={async () => {
+                            setSelectedPay(p);
+                            const [wRes, aRes] = await Promise.all([
+                              fetch(`/api/work-entries?empId=${p.employee_id}&month=${p.payroll_month}&status=approved`).then(r => r.json()),
+                              fetch(`/api/adjustments?empId=${p.employee_id}&month=${p.payroll_month}`).then(r => r.json()),
+                            ]);
+                            setDetailEntries(wRes.data || []);
+                            setDetailAdjs(aRes.data || []);
+                            setShowDetailModal(true);
+                          }}>Details</Button>
                           {p.status !== 'paid' && (
                             <Button variant="success" size="xs" onClick={() => { setSelectedPay(p); setShowPayModal(true); }}>Mark Paid</Button>
                           )}
@@ -246,6 +419,23 @@ export default function PayrollPage() {
               <div className="alert alert-info">
                 Adjusting payroll for <strong>{(selectedPay.employee as { full_name: string })?.full_name}</strong> — {selectedPay.payroll_month}
               </div>
+
+              {/* Pending adjustments notice */}
+              {pendingAdjs.length > 0 && (
+                <div style={{ background: 'var(--warning-bg, #fffbea)', border: '1.5px solid var(--warning, #f59e0b)', borderRadius: 8, padding: '10px 14px' }}>
+                  <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--warning, #b45309)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                    ⚡ {pendingAdjs.length} Pending Adjustment{pendingAdjs.length > 1 ? 's' : ''} — pre-filled below
+                  </div>
+                  {pendingAdjs.map(a => (
+                    <div key={a.id} style={{ fontSize: 13, display: 'flex', justifyContent: 'space-between', padding: '2px 0', color: 'var(--text-1)' }}>
+                      <span style={{ textTransform: 'capitalize' }}>{a.adj_type}{a.reason ? ` — ${a.reason}` : ''}</span>
+                      <strong style={{ color: ['deduction','advance'].includes(a.adj_type) ? 'var(--danger)' : 'var(--success)' }}>
+                        {['deduction','advance'].includes(a.adj_type) ? '−' : '+'}{formatCurrency(a.amount)}
+                      </strong>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {/* Base info */}
               <div style={{ background: 'var(--bg)', borderRadius: 8, padding: '10px 14px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
@@ -308,6 +498,159 @@ export default function PayrollPage() {
               })()}
             </div>
           )}
+        </Modal>
+
+        {/* Payroll Details Modal */}
+        <Modal open={showDetailModal} onClose={() => setShowDetailModal(false)} title="Payroll Details" maxWidth={640}
+          footer={<>
+            <Button variant="ghost" onClick={() => setShowDetailModal(false)}>Close</Button>
+            <Button variant="outline" icon="⬇" onClick={downloadDetailPDF}>Download PDF</Button>
+          </>}
+        >
+          {selectedPay && (() => {
+            const emp = selectedPay.employee as { full_name: string; employee_code: string; department: string; emp_type: string; salary_type?: string; hourly_rate?: number } | undefined;
+            const totalHours = detailEntries.reduce((s, e) => s + (e.adjusted_hours || e.total_hours), 0);
+            const adjMeta: Record<string, { label: string; color: string; sign: string }> = {
+              bonus:     { label: 'Bonus',            color: 'var(--success)', sign: '+' },
+              overtime:  { label: 'Overtime Pay',     color: 'var(--success)', sign: '+' },
+              allowance: { label: 'Allowance',        color: 'var(--success)', sign: '+' },
+              deduction: { label: 'Deduction',        color: 'var(--danger)',  sign: '−' },
+              advance:   { label: 'Advance Recovery', color: 'var(--danger)',  sign: '−' },
+            };
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                {/* Employee header */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'var(--bg)', borderRadius: 10, padding: '12px 16px' }}>
+                  <Avatar name={emp?.full_name || ''} size="lg" />
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 16 }}>{emp?.full_name}</div>
+                    <div style={{ fontSize: 13, color: 'var(--text-2)' }}>{emp?.employee_code} · {emp?.department}</div>
+                  </div>
+                  <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{getPayrollMonthLabel(selectedPay.payroll_month)}</div>
+                    <Badge status={selectedPay.status} />
+                  </div>
+                </div>
+
+                {/* Work entries */}
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
+                    <span>⏱ Approved Work Entries</span>
+                    <span style={{ color: 'var(--primary)' }}>{totalHours.toFixed(2)} hrs total</span>
+                  </div>
+                  {detailEntries.length === 0 ? (
+                    <div style={{ padding: '12px', background: 'var(--bg)', borderRadius: 8, fontSize: 13, color: 'var(--text-2)' }}>No approved work entries</div>
+                  ) : (
+                    <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', maxHeight: 200, overflowY: 'auto' }}>
+                      <table className="data-table" style={{ fontSize: 12, margin: 0 }}>
+                        <thead><tr><th>Date</th><th>Hours</th><th>Task</th></tr></thead>
+                        <tbody>
+                          {detailEntries.map(e => (
+                            <tr key={e.id}>
+                              <td className="muted" style={{ whiteSpace: 'nowrap' }}>{new Date(e.entry_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'short' })}</td>
+                              <td style={{ fontWeight: 600 }}>
+                                {(e.adjusted_hours || e.total_hours).toFixed(2)}
+                                {e.adjusted_hours && e.adjusted_hours !== e.total_hours && (
+                                  <span style={{ fontSize: 10, color: 'var(--text-3)', marginLeft: 4 }}>({e.total_hours.toFixed(2)} orig)</span>
+                                )}
+                              </td>
+                              <td className="muted" style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.task_description || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  {emp?.salary_type === 'hourly' && totalHours > 0 && (
+                    <div style={{ marginTop: 6, fontSize: 13, color: 'var(--text-2)', textAlign: 'right' }}>
+                      {totalHours.toFixed(2)} hrs × {formatCurrency(emp.hourly_rate || 0)}/hr = <strong style={{ color: 'var(--text-1)' }}>{formatCurrency(totalHours * (emp.hourly_rate || 0))}</strong>
+                    </div>
+                  )}
+                </div>
+
+                {/* Adjustments */}
+                {detailAdjs.length > 0 && (
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>🧾 Adjustments</div>
+                    <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                      {detailAdjs.map((a, i) => {
+                        const meta = adjMeta[a.adj_type] || { label: a.adj_type, color: 'var(--text-1)', sign: '' };
+                        return (
+                          <div key={a.id} style={{ padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: i < detailAdjs.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                            <div>
+                              <span style={{ fontWeight: 600, color: meta.color, fontSize: 13 }}>{meta.label}</span>
+                              {a.reason && <span style={{ fontSize: 12, color: 'var(--text-2)', marginLeft: 8 }}>— {a.reason}</span>}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <strong style={{ color: meta.color }}>{meta.sign}{formatCurrency(a.amount)}</strong>
+                              <Badge status={a.applied ? 'active' : 'pending'}>{a.applied ? 'Applied' : 'Pending'}</Badge>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Salary breakdown */}
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>💰 Salary Breakdown</div>
+                  <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                    {[
+                      { l: 'Basic Salary',      v: selectedPay.basic_salary,      color: '' },
+                      ...(selectedPay.hra           > 0 ? [{ l: 'HRA',               v: selectedPay.hra,           color: '' }] : []),
+                      ...(selectedPay.conveyance    > 0 ? [{ l: 'Conveyance',        v: selectedPay.conveyance,    color: '' }] : []),
+                      ...(selectedPay.overtime_pay  > 0 ? [{ l: 'Overtime Pay',      v: selectedPay.overtime_pay,  color: 'var(--success)' }] : []),
+                      ...(selectedPay.bonus         > 0 ? [{ l: 'Bonus',             v: selectedPay.bonus,         color: 'var(--success)' }] : []),
+                      ...(selectedPay.other_allowance > 0 ? [{ l: 'Other Allowance', v: selectedPay.other_allowance, color: 'var(--success)' }] : []),
+                    ].map(r => (
+                      <div key={r.l} style={{ padding: '8px 14px', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
+                        <span style={{ color: 'var(--text-2)' }}>{r.l}</span>
+                        <span style={{ fontWeight: 600, color: r.color || 'var(--text-1)' }}>{formatCurrency(r.v)}</span>
+                      </div>
+                    ))}
+                    <div style={{ padding: '8px 14px', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', fontSize: 13, background: 'var(--bg)' }}>
+                      <span style={{ fontWeight: 700, color: 'var(--success)' }}>Gross Earnings</span>
+                      <strong style={{ color: 'var(--success)' }}>{formatCurrency(selectedPay.gross_earnings)}</strong>
+                    </div>
+                    {[
+                      ...(selectedPay.pf_employee       > 0 ? [{ l: 'PF (Employee)',    v: selectedPay.pf_employee }] : []),
+                      ...(selectedPay.professional_tax  > 0 ? [{ l: 'Professional Tax', v: selectedPay.professional_tax }] : []),
+                      ...(selectedPay.advance_deduction > 0 ? [{ l: 'Advance Deduction',v: selectedPay.advance_deduction }] : []),
+                      ...(selectedPay.other_deductions  > 0 ? [{ l: 'Other Deductions', v: selectedPay.other_deductions }] : []),
+                      ...(selectedPay.leave_deductions  > 0 ? [{ l: 'Leave Deductions', v: selectedPay.leave_deductions }] : []),
+                    ].map(r => (
+                      <div key={r.l} style={{ padding: '8px 14px', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
+                        <span style={{ color: 'var(--text-2)' }}>{r.l}</span>
+                        <span style={{ fontWeight: 600, color: 'var(--danger)' }}>−{formatCurrency(r.v)}</span>
+                      </div>
+                    ))}
+                    <div style={{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', background: 'var(--primary-light)', borderTop: '2px solid var(--primary)' }}>
+                      <span style={{ fontWeight: 700, color: 'var(--primary)', fontSize: 14 }}>Net Pay</span>
+                      <strong style={{ color: 'var(--primary)', fontSize: 18 }}>{formatCurrency(selectedPay.net_pay)}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Payment info if paid */}
+                {selectedPay.status === 'paid' && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 10 }}>
+                    {[
+                      { l: 'Payment Date', v: selectedPay.payment_date ? new Date(selectedPay.payment_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'short', year: 'numeric' }) : '—' },
+                      { l: 'Method',       v: selectedPay.payment_method || '—' },
+                      { l: 'Reference',    v: selectedPay.transaction_ref || '—' },
+                      { l: 'Account',      v: selectedPay.bank_last4 ? `••••${selectedPay.bank_last4}` : '—' },
+                    ].map(s => (
+                      <div key={s.l} style={{ background: 'var(--bg)', borderRadius: 8, padding: '10px 14px' }}>
+                        <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{s.l}</div>
+                        <div style={{ fontWeight: 600 }}>{s.v}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </Modal>
 
         {/* Mark Paid Modal */}

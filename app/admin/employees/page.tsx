@@ -29,6 +29,9 @@ const empSchema = z.object({
   salary_type: z.enum(['monthly', 'hourly', 'fixed']),
   monthly_salary: z.string().optional(),
   hourly_rate: z.string().optional(),
+  id_type: z.enum(['iqama', 'passport', 'national_id']).optional(),
+  id_number: z.string().optional(),
+  id_expiry: z.string().optional(),
   notes: z.string().optional(),
   username: z.string().min(3, 'Username min 3 chars').optional().or(z.literal('')),
   password: z.string().min(6, 'Password min 6 chars').optional().or(z.literal('')),
@@ -134,6 +137,9 @@ export default function EmployeesPage() {
       salary_type: emp.salary_type || 'monthly',
       monthly_salary: emp.monthly_salary ? String(emp.monthly_salary) : '',
       hourly_rate: emp.hourly_rate ? String(emp.hourly_rate) : '',
+      id_type: emp.id_type || undefined,
+      id_number: emp.id_number || '',
+      id_expiry: emp.id_expiry || '',
       notes: emp.notes || '',
     });
     setShowAdd(true);
@@ -249,6 +255,9 @@ export default function EmployeesPage() {
                   { l: 'Mobile', v: selectedEmp.mobile || '—' },
                   { l: 'WhatsApp', v: selectedEmp.whatsapp || '—' },
                   { l: 'Joined', v: formatDate(selectedEmp.joining_date) },
+                  { l: 'ID Type', v: selectedEmp.id_type ? (selectedEmp.id_type === 'iqama' ? 'Iqama' : selectedEmp.id_type === 'passport' ? 'Passport' : 'National ID') : '—' },
+                  { l: 'ID Number', v: selectedEmp.id_number || '—' },
+                  { l: 'ID Expiry', v: selectedEmp.id_expiry ? formatDate(selectedEmp.id_expiry) : '—' },
                 ].map(({ l, v }) => (
                   <div key={l} style={{ background: 'var(--bg)', borderRadius: 8, padding: '10px 14px' }}>
                     <div style={{ fontSize: 11, color: 'var(--text-2)', marginBottom: 3, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{l}</div>
@@ -350,6 +359,31 @@ export default function EmployeesPage() {
             <div className="form-group">
               <label className="form-label">Address</label>
               <input className="form-input" placeholder="City, State" {...register('address')} />
+            </div>
+            <div style={{ background: 'var(--bg)', borderRadius: 8, padding: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: 'var(--text-2)' }}>Identity Document</div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">ID Type</label>
+                  <select className="form-select" {...register('id_type')}>
+                    <option value="">Select type</option>
+                    <option value="iqama">Iqama</option>
+                    <option value="passport">Passport</option>
+                    <option value="national_id">National ID</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">ID Number</label>
+                  <input className="form-input" placeholder="e.g. 2xxxxxxxxx" {...register('id_number')} />
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Expiry Date</label>
+                  <input className="form-input" type="date" {...register('id_expiry')} />
+                </div>
+                <div className="form-group" />
+              </div>
             </div>
             {!editEmp && (
               <div style={{ background: 'var(--bg)', borderRadius: 8, padding: 14 }}>

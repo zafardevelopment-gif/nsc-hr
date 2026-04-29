@@ -8,6 +8,7 @@ const EMP_ITEMS = [
   { href: '/employee/dashboard',     icon: '🏠', label: 'My Dashboard' },
   { href: '/employee/work-entry',    icon: '⏱️', label: 'Work Entry' },
   { href: '/employee/leave',         icon: '🗓️', label: 'Leave' },
+  { href: '/employee/salary',        icon: '📊', label: 'My Salary' },
   { href: '/employee/payslip',       icon: '💰', label: 'Payslips' },
   { href: '/employee/notifications', icon: '🔔', label: 'Notifications' },
 ];

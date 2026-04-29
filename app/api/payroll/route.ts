@@ -63,7 +63,17 @@ export async function POST(req: NextRequest) {
         .select('id').eq('employee_id', emp.id).eq('payroll_month', month).single();
       if (existing) continue;
 
-      let basicSalary = 0, overtimePay = 0, approvedHours = 0;
+      // Fetch pending adjustments for this employee + month
+      const { data: adjs } = await db.from('NSC_HR_adjustments')
+        .select('*').eq('employee_id', emp.id).eq('adj_month', month).eq('applied', false);
+
+      const adjBonus     = adjs?.filter(a => a.adj_type === 'bonus').reduce((s, a) => s + a.amount, 0) || 0;
+      const adjOvertime  = adjs?.filter(a => a.adj_type === 'overtime').reduce((s, a) => s + a.amount, 0) || 0;
+      const adjAllowance = adjs?.filter(a => a.adj_type === 'allowance').reduce((s, a) => s + a.amount, 0) || 0;
+      const adjDeduction = adjs?.filter(a => a.adj_type === 'deduction').reduce((s, a) => s + a.amount, 0) || 0;
+      const adjAdvance   = adjs?.filter(a => a.adj_type === 'advance').reduce((s, a) => s + a.amount, 0) || 0;
+
+      let basicSalary = 0, overtimePay = adjOvertime, approvedHours = 0;
 
       if (emp.emp_type === 'permanent' && emp.salary_type === 'monthly') {
         basicSalary = emp.monthly_salary || 0;
@@ -87,10 +97,10 @@ export async function POST(req: NextRequest) {
 
       const hra = emp.emp_type === 'permanent' ? basicSalary * hraRate : 0;
       const conv = emp.emp_type === 'permanent' ? conveyance : 0;
-      const grossEarnings = basicSalary + hra + conv + overtimePay;
+      const grossEarnings = basicSalary + hra + conv + overtimePay + adjBonus + adjAllowance;
       const pfDeduction = emp.emp_type === 'permanent' ? basicSalary * pfRate : 0;
       const pt = emp.emp_type === 'permanent' && grossEarnings > 0 ? profTax : 0;
-      const totalDeductions = pfDeduction + pt;
+      const totalDeductions = pfDeduction + pt + adjDeduction + adjAdvance;
       const netPay = grossEarnings - totalDeductions;
 
       const payrollEntry = {
@@ -100,6 +110,10 @@ export async function POST(req: NextRequest) {
         hra,
         conveyance: conv,
         overtime_pay: overtimePay,
+        bonus: adjBonus,
+        other_allowance: adjAllowance,
+        advance_deduction: adjAdvance,
+        other_deductions: adjDeduction,
         gross_earnings: grossEarnings,
         pf_employee: pfDeduction,
         professional_tax: pt,
@@ -111,7 +125,15 @@ export async function POST(req: NextRequest) {
       };
 
       const { data } = await db.from('NSC_HR_payroll').insert(payrollEntry).select().single();
-      if (data) results.push(data);
+      if (data) {
+        results.push(data);
+        // Mark adjustments as applied
+        if (adjs && adjs.length > 0) {
+          await db.from('NSC_HR_adjustments')
+            .update({ applied: true, updated_at: new Date().toISOString() })
+            .eq('employee_id', emp.id).eq('adj_month', month).eq('applied', false);
+        }
+      }
     }
 
     await db.from('NSC_HR_activity_logs').insert({

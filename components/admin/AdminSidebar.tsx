@@ -10,6 +10,7 @@ const ADMIN_ITEMS = [
   { section: 'Operations' },
   { href: '/admin/work-approval', icon: '⏱️', label: 'Work Entries' },
   { href: '/admin/leave',         icon: '🗓️', label: 'Leave' },
+  { href: '/admin/adjustments',   icon: '🧾', label: 'Adjustments' },
   { href: '/admin/payroll',       icon: '💰', label: 'Payroll' },
   { section: 'Insights' },
   { href: '/admin/reports',       icon: '📈', label: 'Reports' },

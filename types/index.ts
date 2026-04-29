@@ -22,6 +22,9 @@ export interface Employee {
   salary_type?: 'monthly' | 'hourly' | 'fixed';
   monthly_salary?: number;
   hourly_rate?: number;
+  id_type?: 'iqama' | 'passport' | 'national_id';
+  id_number?: string;
+  id_expiry?: string;
   active: boolean;
   notes?: string;
   created_at?: string;
