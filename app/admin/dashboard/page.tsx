@@ -32,10 +32,12 @@ export default function AdminDashboard() {
   useEffect(() => {
     async function load() {
       try {
-        const curMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
-        const today = new Date().toISOString().slice(0, 10);
+        const now = new Date();
+        const curMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const today = now.toISOString().slice(0, 10);
         const monthStart = `${curMonth}-01`;
-        const monthEnd = `${curMonth}-31`;
+        const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+        const monthEnd = `${curMonth}-${String(lastDay).padStart(2, '0')}`;
         const [empRes, workRes, leaveRes, payRes, chartRes, finEarnRes, finExpRes, finTodayEarnRes, finTodayExpRes, docsRes] = await Promise.all([
           fetch('/api/employees?limit=500'),
           fetch('/api/work-entries?status=pending&limit=5'),
@@ -105,8 +107,9 @@ export default function AdminDashboard() {
             { name: 'Absent',  value: absP,  color: '#EF4444' },
           ]);
         }
-      } catch {}
-      finally { setLoading(false); }
+      } catch (err) {
+        console.error('Dashboard load error:', err);
+      } finally { setLoading(false); }
     }
     load();
   }, []);
@@ -145,14 +148,14 @@ export default function AdminDashboard() {
         {/* Finance + ID widgets */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14 }}>
           <div className="card" style={{ padding: '16px 20px', cursor: 'pointer' }} onClick={() => router.push('/admin/finance')}>
-            <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>Today Earnings</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: '#16A34A' }}>{formatCurrency(financeStats.todayEarnings)}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>↗ {formatCurrency(financeStats.monthEarnings)} this month</div>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>Monthly Earnings</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: '#16A34A' }}>{formatCurrency(financeStats.monthEarnings)}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>↗ {formatCurrency(financeStats.todayEarnings)} today</div>
           </div>
           <div className="card" style={{ padding: '16px 20px', cursor: 'pointer' }} onClick={() => router.push('/admin/finance')}>
-            <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>Today Expenses</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: '#DC2626' }}>{formatCurrency(financeStats.todayExpenses)}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>↗ {formatCurrency(financeStats.monthExpenses)} this month</div>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>Monthly Expenses</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: '#DC2626' }}>{formatCurrency(financeStats.monthExpenses)}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>↗ {formatCurrency(financeStats.todayExpenses)} today</div>
           </div>
           <div className="card" style={{ padding: '16px 20px', cursor: 'pointer' }} onClick={() => router.push('/admin/finance')}>
             <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>Monthly Profit</div>
