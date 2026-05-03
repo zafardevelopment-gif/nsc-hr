@@ -6,8 +6,8 @@ import toast from 'react-hot-toast';
 
 // Role helpers
 // super_admin : full access
-// admin       : no Finance
-// staff       : only Work Entries, Leave — no Finance, no Payroll, no Reports, no Settings, no Projects management
+// admin       : Dashboard, Work Entries, Leave, Notifications only
+// staff       : Work Entries, Leave only
 
 type NavItem =
   | { section: string; minRole?: 'super_admin' | 'admin' | 'staff' }
@@ -16,9 +16,9 @@ type NavItem =
 const ADMIN_ITEMS: NavItem[] = [
   { href: '/admin/dashboard',         icon: '📊', label: 'Dashboard' },
   { href: '/admin/employees',         icon: '👥', label: 'Employees',   minRole: 'admin' },
-  { section: 'Projects',                                                  minRole: 'admin' },
-  { href: '/admin/projects',          icon: '📁', label: 'Projects',    minRole: 'admin' },
-  { href: '/admin/project-work-logs', icon: '📋', label: 'Work Logs',   minRole: 'admin' },
+  { section: 'Projects',                                                  minRole: 'super_admin' },
+  { href: '/admin/projects',          icon: '📁', label: 'Projects',    minRole: 'super_admin' },
+  { href: '/admin/project-work-logs', icon: '📋', label: 'Work Logs',   minRole: 'super_admin' },
   { section: 'Operations' },
   { href: '/admin/work-approval',     icon: '⏱️', label: 'Work Entries' },
   { href: '/admin/leave',             icon: '🗓️', label: 'Leave' },
@@ -26,9 +26,9 @@ const ADMIN_ITEMS: NavItem[] = [
   { href: '/admin/payroll',           icon: '💰', label: 'Payroll',     minRole: 'admin' },
   { href: '/admin/documents',         icon: '🪪', label: 'ID Documents',minRole: 'admin' },
   { href: '/admin/finance',           icon: '💵', label: 'Finance',     minRole: 'super_admin' },
-  { section: 'Insights',                                                  minRole: 'admin' },
-  { href: '/admin/reports',           icon: '📈', label: 'Reports',     minRole: 'admin' },
-  { href: '/admin/notifications',     icon: '🔔', label: 'Notifications' },
+  { section: 'Insights',                                                  minRole: 'super_admin' },
+  { href: '/admin/reports',           icon: '📈', label: 'Reports',     minRole: 'super_admin' },
+  { href: '/admin/notifications',     icon: '🔔', label: 'Notifications', minRole: 'admin' },
   { href: '/admin/settings',          icon: '⚙️', label: 'Settings',    minRole: 'super_admin' },
 ];
 
@@ -60,9 +60,9 @@ const MOBILE_NAV_ITEMS: MobileNavItem[] = [
   { href: '/admin/dashboard',    icon: '📊', label: 'Dashboard' },
   { href: '/admin/employees',    icon: '👥', label: 'Staff',    minRole: 'admin' },
   { href: '/admin/finance',      icon: '💵', label: 'Finance',  minRole: 'super_admin' },
-  { href: '/admin/projects',     icon: '📁', label: 'Projects', minRole: 'admin' },
+  { href: '/admin/projects',     icon: '📁', label: 'Projects', minRole: 'super_admin' },
   { href: '/admin/payroll',      icon: '💰', label: 'Payroll',  minRole: 'admin' },
-  { href: '/admin/reports',      icon: '📈', label: 'Reports',  minRole: 'admin' },
+  { href: '/admin/reports',      icon: '📈', label: 'Reports',  minRole: 'super_admin' },
   { href: '__logout__',          icon: '⎋',  label: 'Logout' },
 ];
 
