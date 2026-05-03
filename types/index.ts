@@ -2,7 +2,7 @@ export interface User {
   id: string;
   username: string;
   role: 'admin' | 'employee';
-  role_type?: 'super_admin' | 'restricted_admin';
+  role_type?: 'super_admin' | 'admin' | 'staff';
   employee_id?: string;
   active: boolean;
   employee?: Employee;

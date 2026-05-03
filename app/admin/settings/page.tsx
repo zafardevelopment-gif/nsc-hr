@@ -13,7 +13,7 @@ interface Department {
   description: string | null;
 }
 
-const NAV_ITEMS = ['General', 'Payroll Config', 'Leave Policy', 'Departments', 'Integrations', 'Security'];
+const NAV_ITEMS = ['General', 'Payroll Config', 'Leave Policy', 'Departments', 'Admin Users', 'Integrations', 'Security'];
 
 export default function SettingsPage() {
   const { user } = useUser();
@@ -26,6 +26,15 @@ export default function SettingsPage() {
   const [newDeptName, setNewDeptName] = useState('');
   const [newDeptDesc, setNewDeptDesc] = useState('');
   const [addingDept, setAddingDept] = useState(false);
+
+  // Admin users
+  interface AdminUser { id: string; username: string; role_type: string; active: boolean; last_login?: string; }
+  const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [newAdminUsername, setNewAdminUsername] = useState('');
+  const [newAdminPassword, setNewAdminPassword] = useState('');
+  const [newAdminRoleType, setNewAdminRoleType] = useState('admin');
+  const [addingAdmin, setAddingAdmin] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -53,7 +62,64 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (activeNav === 'Departments') loadDepartments();
+    if (activeNav === 'Admin Users') loadAdminUsers();
   }, [activeNav]);
+
+  async function loadAdminUsers() {
+    setAdminLoading(true);
+    try {
+      const res = await fetch('/api/admin-users');
+      const json = await res.json();
+      setAdminUsers(json.data || []);
+    } catch { toast.error('Failed to load admin users'); }
+    finally { setAdminLoading(false); }
+  }
+
+  async function addAdminUser() {
+    if (!newAdminUsername.trim() || !newAdminPassword.trim()) { toast.error('Username and password required'); return; }
+    setAddingAdmin(true);
+    try {
+      const res = await fetch('/api/admin-users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: newAdminUsername.trim(), password: newAdminPassword, role_type: newAdminRoleType }),
+      });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      toast.success('Admin user created');
+      setNewAdminUsername(''); setNewAdminPassword(''); setNewAdminRoleType('admin');
+      loadAdminUsers();
+    } catch (e: unknown) { toast.error((e as Error).message); }
+    finally { setAddingAdmin(false); }
+  }
+
+  async function toggleAdminUser(id: string, active: boolean) {
+    try {
+      const res = await fetch(`/api/admin-users/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active }),
+      });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      toast.success(active ? 'User activated' : 'User deactivated');
+      loadAdminUsers();
+    } catch (e: unknown) { toast.error((e as Error).message); }
+  }
+
+  async function changeRoleType(id: string, role_type: string) {
+    try {
+      const res = await fetch(`/api/admin-users/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role_type }),
+      });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      toast.success('Role updated');
+      loadAdminUsers();
+    } catch (e: unknown) { toast.error((e as Error).message); }
+  }
 
   async function addDepartment() {
     if (!newDeptName.trim()) return;
@@ -348,6 +414,77 @@ export default function SettingsPage() {
                           >
                             Delete
                           </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {activeNav === 'Admin Users' && (
+            <Card title="Admin Users">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div style={{ background: 'var(--bg)', borderRadius: 8, padding: 14 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 12, color: 'var(--text-2)' }}>Create New Admin User</div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-label">Username</label>
+                      <input className="form-input" placeholder="e.g. john.admin" value={newAdminUsername} onChange={e => setNewAdminUsername(e.target.value)} />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Password</label>
+                      <input className="form-input" type="password" placeholder="min 6 chars" value={newAdminPassword} onChange={e => setNewAdminPassword(e.target.value)} />
+                    </div>
+                  </div>
+                  <div className="form-group" style={{ marginTop: 8 }}>
+                    <label className="form-label">Role Type</label>
+                    <select className="form-select" value={newAdminRoleType} onChange={e => setNewAdminRoleType(e.target.value)}>
+                      <option value="super_admin">Super Admin — Full access (Finance, Settings, Reports)</option>
+                      <option value="admin">Admin — No Finance access</option>
+                      <option value="staff">Staff — Work Entries & Leave only</option>
+                    </select>
+                  </div>
+                  <Button style={{ marginTop: 12 }} loading={addingAdmin} onClick={addAdminUser}>Create User</Button>
+                </div>
+
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10, color: 'var(--text-2)' }}>Existing Admin Users</div>
+                  {adminLoading ? (
+                    <div style={{ color: 'var(--text-3)', fontSize: 13 }}>Loading...</div>
+                  ) : adminUsers.length === 0 ? (
+                    <div style={{ color: 'var(--text-3)', fontSize: 13 }}>No admin users found.</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {adminUsers.map(u => (
+                        <div key={u.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg)', borderRadius: 8, padding: '10px 14px', border: '1px solid var(--border-2)', opacity: u.active ? 1 : 0.5 }}>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: 14 }}>{u.username}</div>
+                            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
+                              {u.active ? '● Active' : '○ Inactive'}
+                              {u.last_login && ` · Last login: ${new Date(u.last_login).toLocaleDateString()}`}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <select
+                              className="form-select"
+                              style={{ width: 'auto', fontSize: 12, padding: '4px 8px' }}
+                              value={u.role_type}
+                              onChange={e => changeRoleType(u.id, e.target.value)}
+                              disabled={u.id === user?.id}
+                            >
+                              <option value="super_admin">Super Admin</option>
+                              <option value="admin">Admin</option>
+                              <option value="staff">Staff</option>
+                            </select>
+                            {u.id !== user?.id && (
+                              <Button variant="ghost" size="xs" style={{ color: u.active ? 'var(--danger)' : 'var(--success)' }}
+                                onClick={() => toggleAdminUser(u.id, !u.active)}>
+                                {u.active ? 'Deactivate' : 'Activate'}
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>

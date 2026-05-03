@@ -5,6 +5,6 @@ export default async function FinanceLayout({ children }: { children: React.Reac
   const session = await getSession();
   if (!session) redirect('/login');
   const isSuperAdmin = !session.role_type || session.role_type === 'super_admin';
-  if (!isSuperAdmin) redirect('/admin/dashboard');
+  if (session.role !== 'admin' || !isSuperAdmin) redirect('/admin/dashboard');
   return <>{children}</>;
 }

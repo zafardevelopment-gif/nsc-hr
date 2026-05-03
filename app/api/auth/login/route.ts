@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
       id: user.id,
       username: user.username,
       role: user.role,
-      role_type: user.role_type || 'super_admin',
+      role_type: user.role_type || (user.role === 'admin' ? 'super_admin' : undefined),
       employee_id: user.employee_id,
       active: user.active,
       employee: user.employee,
