@@ -185,7 +185,7 @@ export async function POST(req: NextRequest) {
         const adjAdvance     = allAdjs?.filter(a => a.adj_type === 'advance') .reduce((s, a) => s + a.amount, 0) || 0;
 
         let basicSalary = 0, overtimePay = adjOvertime, approvedHours = 0;
-        let entriesToLink: { id: string; total_hours: number; adjusted_hours?: number | null }[] = [];
+        let entriesToLink: { id: string; total_hours: number; adjusted_hours?: number | null; project_id?: string | null }[] = [];
 
         if (emp.emp_type === 'part-time') {
           // Part-time: always calculate from work entries × project assignment rates

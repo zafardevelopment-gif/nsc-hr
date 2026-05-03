@@ -391,7 +391,7 @@ export default function ProjectsPage() {
                           </div>
                         </div>
                         {!a.active && (
-                          <Badge status="inactive" style={{ marginBottom: 8 }}>Deactivated</Badge>
+                          <div style={{ marginBottom: 8 }}><Badge status="inactive">Deactivated</Badge></div>
                         )}
                         <div style={{ display: 'flex', gap: 6 }}>
                           <Button variant="outline" size="xs" onClick={() => openAssignEdit(a)}>Edit Rate</Button>

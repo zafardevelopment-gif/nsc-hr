@@ -295,7 +295,7 @@ export default function FinancePage() {
                       <div>
                         <div style={{ fontWeight: 700, fontSize: 14 }}>{e.description}</div>
                         <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{formatDate(e.date)}</div>
-                        {e.project && <Badge status="primary" style={{ marginTop: 4 }}>{e.project.project_name}</Badge>}
+                        {e.project && <div style={{ marginTop: 4 }}><Badge status="primary">{e.project.project_name}</Badge></div>}
                       </div>
                       <div style={{ fontWeight: 800, fontSize: 16, color: isEarning ? '#16A34A' : '#DC2626' }}>
                         {isEarning ? '+' : '-'}{formatCurrency(Number(e.amount))}
