@@ -1,4 +1,5 @@
 'use client';
+import { useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { Avatar } from '@/components/ui/Avatar';
 import { User } from '@/types';
@@ -70,7 +71,8 @@ export function EmployeeSidebar({ user }: { user: User }) {
   );
 }
 
-export function EmployeeMobileNav({ user: _user }: { user: User }) {
+export function EmployeeMobileNav({ user }: { user: User }) {
+  const [open, setOpen] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
 
@@ -80,24 +82,89 @@ export function EmployeeMobileNav({ user: _user }: { user: User }) {
     router.push('/login');
   }
 
-  const allItems = [
-    ...EMP_ITEMS,
-    { href: '__logout__', icon: '⎋', label: 'Logout' },
-  ];
+  function navigate(href: string) {
+    setOpen(false);
+    router.push(href);
+  }
+
+  const displayName = user.employee?.full_name || user.username;
 
   return (
-    <div className="mobile-nav">
-      {allItems.map(item => (
+    <>
+      {/* Hamburger button */}
+      <button
+        className="mobile-hamburger"
+        onClick={() => setOpen(true)}
+        aria-label="Open menu"
+      >
+        <span />
+        <span />
+        <span />
+      </button>
+
+      {/* Overlay */}
+      {open && (
         <div
-          key={item.href}
-          className={`mobile-nav-item ${pathname === item.href ? 'active' : ''}`}
-          style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: 8, cursor: 'pointer', color: item.href === '__logout__' ? 'var(--danger)' : pathname === item.href ? 'var(--primary)' : 'var(--text-3)', fontSize: 10, fontWeight: 600 }}
-          onClick={() => item.href === '__logout__' ? handleLogout() : router.push(item.href)}
-        >
-          <span style={{ fontSize: 20 }}>{item.icon}</span>
-          {item.label}
+          className="mobile-drawer-overlay"
+          onClick={() => setOpen(false)}
+        />
+      )}
+
+      {/* Drawer */}
+      <div className={`mobile-drawer ${open ? 'open' : ''}`}>
+        {/* Header */}
+        <div className="mobile-drawer-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <img
+              src="/nsc-logo.png"
+              alt="NSC"
+              style={{ height: 32, width: 'auto', objectFit: 'contain' }}
+              onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            />
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--primary)' }}>NSC Employee</div>
+              <div style={{ fontSize: 10, color: 'var(--primary-dark)', opacity: 0.7 }}>Employee Portal</div>
+            </div>
+          </div>
+          <button className="mobile-drawer-close" onClick={() => setOpen(false)}>✕</button>
         </div>
-      ))}
-    </div>
+
+        {/* User info */}
+        <div className="mobile-drawer-user">
+          <Avatar name={displayName} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>{user.employee?.designation || 'Employee'}</div>
+          </div>
+        </div>
+
+        {/* Nav items */}
+        <div className="mobile-drawer-nav">
+          {EMP_ITEMS.map(item => {
+            const active = pathname === item.href;
+            return (
+              <div
+                key={item.href}
+                className={`sidebar-item ${active ? 'active' : ''}`}
+                onClick={() => navigate(item.href)}
+              >
+                <span className="icon">{item.icon}</span>
+                {item.label}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Logout */}
+        <div className="mobile-drawer-footer">
+          <button
+            onClick={handleLogout}
+            style={{ width: '100%', padding: '10px 12px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, cursor: 'pointer', color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+          >
+            <span>⎋</span> Logout
+          </button>
+        </div>
+      </div>
+    </>
   );
 }
