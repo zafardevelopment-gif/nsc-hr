@@ -81,5 +81,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ data: filtered });
   }
 
+  if (type === 'project_pl') {
+    // Project-wise Profit & Loss from the view
+    const { data, error } = await db.from('NSC_HR_project_reports').select('*');
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ data: data || [] });
+  }
+
   return NextResponse.json({ data: [] });
 }

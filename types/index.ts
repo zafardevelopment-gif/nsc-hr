@@ -2,6 +2,7 @@ export interface User {
   id: string;
   username: string;
   role: 'admin' | 'employee';
+  role_type?: 'super_admin' | 'restricted_admin';
   employee_id?: string;
   active: boolean;
   employee?: Employee;
@@ -167,9 +168,64 @@ export interface FinanceEntry {
   payment_mode?: 'cash' | 'bank_transfer' | 'cheque' | 'online' | 'other';
   reference?: string;
   notes?: string;
+  project_id?: string | null;
+  project?: Project;
   created_by?: string;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface Project {
+  id: string;
+  project_name: string;
+  project_cost?: number;
+  client_name?: string;
+  start_date?: string;
+  end_date?: string;
+  description?: string;
+  status: 'active' | 'inactive';
+  created_at?: string;
+}
+
+export interface ProjectAssignment {
+  id: string;
+  project_id: string;
+  employee_id: string;
+  rate: number;
+  rate_type: 'per_unit' | 'per_hour' | 'per_day' | 'fixed';
+  active: boolean;
+  assigned_at?: string;
+  employee?: Employee;
+  project?: Project;
+}
+
+export interface ProjectWorkLog {
+  id: string;
+  employee_id: string;
+  project_id: string;
+  assignment_id?: string;
+  quantity: number;
+  rate: number;
+  total_amount: number;
+  date: string;
+  notes?: string;
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
+  employee?: Employee;
+  project?: Project;
+  assignment?: ProjectAssignment;
+}
+
+export interface ProjectReport {
+  project_id: string;
+  project_name: string;
+  project_cost: number;
+  status: string;
+  total_income: number;
+  total_finance_expense: number;
+  salary_expense: number;
+  net_profit: number;
 }
 
 export interface AuthSession {

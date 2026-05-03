@@ -7,7 +7,7 @@ import { Card } from '@/components/ui/Card';
 import { UploadZone } from '@/components/ui/UploadZone';
 import { useUser } from '@/lib/hooks';
 import { calcHours, formatDate, getMonthOptions } from '@/lib/utils';
-import { WorkEntry, Payroll } from '@/types';
+import { WorkEntry, Payroll, ProjectAssignment } from '@/types';
 import {
   buildPayrollSummary,
   SALARY_STATUS_LABEL,
@@ -25,6 +25,8 @@ export default function WorkEntryPage() {
   const [proofUrl, setProofUrl]   = useState('');
   const [proofName, setProofName] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [myAssignments, setMyAssignments] = useState<ProjectAssignment[]>([]);
+  const [selectedProject, setSelectedProject] = useState('');
   const [entries, setEntries]   = useState<WorkEntry[]>([]);
   const [payrolls, setPayrolls] = useState<Payroll[]>([]);
   const [loading, setLoading]   = useState(true);
@@ -51,9 +53,17 @@ export default function WorkEntryPage() {
 
   useEffect(() => { loadEntries(); }, [selectedMonth]);
 
+  useEffect(() => {
+    fetch('/api/project-assignments?active=true')
+      .then(r => r.json())
+      .then(j => setMyAssignments(j.data || []))
+      .catch(() => {});
+  }, []);
+
   async function submit() {
     if (!desc.trim()) { toast.error('Description is required'); return; }
     if (hours <= 0) { toast.error('End time must be after start time'); return; }
+    if (myAssignments.length > 0 && !selectedProject) { toast.error('Please select a project'); return; }
 
     setSubmitting(true);
     const tid = toast.loading('Submitting entry...');
@@ -69,6 +79,7 @@ export default function WorkEntryPage() {
           task_description: desc,
           proof_url: proofUrl || null,
           proof_filename: proofName || null,
+          project_id: selectedProject || null,
         }),
       });
       const json = await res.json();
@@ -77,6 +88,7 @@ export default function WorkEntryPage() {
       setDesc('');
       setProofUrl('');
       setProofName('');
+      setSelectedProject('');
       loadEntries();
     } catch (e: unknown) {
       toast.error((e as Error).message, { id: tid });
@@ -108,6 +120,28 @@ export default function WorkEntryPage() {
                 <label className="form-label">Date</label>
                 <input className="form-input" type="date" value={entryDate} onChange={e => setEntryDate(e.target.value)} max={new Date().toISOString().split('T')[0]} />
               </div>
+
+              {myAssignments.length > 0 && (
+                <div className="form-group">
+                  <label className="form-label">
+                    Project
+                    <span style={{ fontWeight: 400, color: 'var(--text-2)', fontSize: 12, marginLeft: 4 }}>(required)</span>
+                  </label>
+                  <select
+                    className="form-select"
+                    value={selectedProject}
+                    onChange={e => setSelectedProject(e.target.value)}
+                  >
+                    <option value="">Select project...</option>
+                    {myAssignments.map(a => (
+                      <option key={a.id} value={a.project_id}>
+                        {a.project?.project_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div className="form-row">
                 <div className="form-group">
                   <label className="form-label">Start Time</label>

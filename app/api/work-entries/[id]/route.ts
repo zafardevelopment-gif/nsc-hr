@@ -11,9 +11,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const db = createServerSupabase();
 
   const { data: entry } = await db.from('NSC_HR_work_entries')
-    .select('*')
+    .select('*, employee:NSC_HR_employees(id,emp_type,hourly_rate)')
     .eq('id', id).single();
   if (!entry) return NextResponse.json({ error: 'Entry not found' }, { status: 404 });
+
+  const wasApproved = entry.status === 'approved';
+  const becomingApproved = body.status === 'approved';
 
   const updateData: Record<string, unknown> = {
     status: body.status,
@@ -26,6 +29,36 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
   const { data, error } = await db.from('NSC_HR_work_entries').update(updateData).eq('id', id).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Auto-create project work log when a part-time employee's entry is approved and has a project
+  const emp = entry.employee as { id: string; emp_type: string; hourly_rate?: number } | null;
+  if (becomingApproved && !wasApproved && emp?.emp_type === 'part-time' && entry.project_id) {
+    // Get employee's assignment rate for this project
+    const { data: assignment } = await db.from('NSC_HR_project_assignments')
+      .select('id, rate, rate_type')
+      .eq('employee_id', entry.employee_id)
+      .eq('project_id', entry.project_id)
+      .eq('active', true)
+      .maybeSingle();
+
+    const hours = body.adjusted_hours ?? entry.adjusted_hours ?? entry.total_hours;
+    const rate = assignment?.rate ?? emp.hourly_rate ?? 0;
+    const total = hours * rate;
+
+    // Insert project work log (skip if already exists for this work entry)
+    await db.from('NSC_HR_project_work_logs').upsert({
+      employee_id:   entry.employee_id,
+      project_id:    entry.project_id,
+      assignment_id: assignment?.id ?? null,
+      work_entry_id: id,
+      quantity:      hours,
+      rate,
+      total_amount:  Math.round(total * 100) / 100,
+      date:          entry.entry_date,
+      notes:         entry.task_description,
+      created_by:    session.id,
+    }, { onConflict: 'work_entry_id' }).select();
+  }
 
   // Notify employee
   await db.from('NSC_HR_notifications').insert({

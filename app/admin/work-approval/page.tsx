@@ -252,6 +252,14 @@ export default function WorkApprovalPage() {
                       </div>
                     ))}
                   </div>
+                  {(selected as WorkEntry & { project?: { project_name: string } }).project && (
+                    <div style={{ marginTop: 10, background: 'var(--primary-light)', border: '1px solid var(--primary)', borderRadius: 6, padding: '6px 10px' }}>
+                      <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 2 }}>Project</div>
+                      <div style={{ fontWeight: 700, color: 'var(--primary)', fontSize: 13 }}>
+                        {(selected as WorkEntry & { project?: { project_name: string } }).project?.project_name}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {selected.proof_url && (

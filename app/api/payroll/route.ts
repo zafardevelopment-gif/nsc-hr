@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
 
         // All approved entries for the month
         const { data: allEntries } = await db.from('NSC_HR_work_entries')
-          .select('id, total_hours, adjusted_hours')
+          .select('id, total_hours, adjusted_hours, project_id')
           .eq('employee_id', emp.id)
           .eq('status', 'approved')
           .gte('entry_date', start)
@@ -97,7 +97,25 @@ export async function POST(req: NextRequest) {
         const supplementHours = unlinkedEntries.reduce(
           (s, e) => s + (e.adjusted_hours || e.total_hours), 0
         );
-        const supplementBasic = Math.round(supplementHours * (emp.hourly_rate || 0) * 100) / 100;
+
+        // For part-time: use project assignment rates
+        let supplementBasic = 0;
+        if (emp.emp_type === 'part-time') {
+          const { data: suppAssignments } = await db.from('NSC_HR_project_assignments')
+            .select('project_id, rate').eq('employee_id', emp.id).eq('active', true);
+          const suppRateMap = new Map((suppAssignments || []).map(a => [a.project_id, a.rate]));
+          supplementBasic = unlinkedEntries.reduce((s, e) => {
+            const hrs = e.adjusted_hours || e.total_hours;
+            const entryWithProject = e as typeof e & { project_id?: string };
+            const rate = entryWithProject.project_id && suppRateMap.has(entryWithProject.project_id)
+              ? suppRateMap.get(entryWithProject.project_id)!
+              : (emp.hourly_rate || 0);
+            return s + hrs * rate;
+          }, 0);
+          supplementBasic = Math.round(supplementBasic * 100) / 100;
+        } else {
+          supplementBasic = Math.round(supplementHours * (emp.hourly_rate || 0) * 100) / 100;
+        }
 
         console.log(`[SUPPLEMENT] emp=${emp.id} unlinked=${unlinkedEntries.length} hrs=${supplementHours} basic=${supplementBasic}`);
 
@@ -130,12 +148,17 @@ export async function POST(req: NextRequest) {
         if (!newSupp) continue;
 
         // Link the unlinked entries to this supplement
-        const itemRows = unlinkedEntries.map(e => ({
-          payroll_id:    newSupp.id,
-          work_entry_id: e.id,
-          hours:         e.adjusted_hours || e.total_hours,
-          amount:        (e.adjusted_hours || e.total_hours) * (emp.hourly_rate || 0),
-        }));
+        const { data: suppAssignments2 } = await db.from('NSC_HR_project_assignments')
+          .select('project_id, rate').eq('employee_id', emp.id).eq('active', true);
+        const suppRateMap2 = new Map((suppAssignments2 || []).map(a => [a.project_id, a.rate]));
+        const itemRows = unlinkedEntries.map(e => {
+          const hrs = e.adjusted_hours || e.total_hours;
+          const entryWithProject = e as typeof e & { project_id?: string };
+          const rate = emp.emp_type === 'part-time' && entryWithProject.project_id && suppRateMap2.has(entryWithProject.project_id)
+            ? suppRateMap2.get(entryWithProject.project_id)!
+            : (emp.hourly_rate || 0);
+          return { payroll_id: newSupp.id, work_entry_id: e.id, hours: hrs, amount: hrs * rate };
+        });
         const { error: itemErr } = await db.from('NSC_HR_payroll_items').insert(itemRows);
         if (itemErr) console.error('Supplement items insert error:', itemErr);
 
@@ -164,7 +187,38 @@ export async function POST(req: NextRequest) {
         let basicSalary = 0, overtimePay = adjOvertime, approvedHours = 0;
         let entriesToLink: { id: string; total_hours: number; adjusted_hours?: number | null }[] = [];
 
-        if (emp.emp_type === 'permanent' && emp.salary_type === 'monthly') {
+        if (emp.emp_type === 'part-time') {
+          // Part-time: always calculate from work entries × project assignment rates
+          const [year, m] = month.split('-');
+          const start = `${year}-${m}-01`;
+          const end   = new Date(parseInt(year), parseInt(m), 0).toISOString().split('T')[0];
+
+          const { data: entries } = await db.from('NSC_HR_work_entries')
+            .select('id, total_hours, adjusted_hours, project_id')
+            .eq('employee_id', emp.id)
+            .eq('status', 'approved')
+            .gte('entry_date', start)
+            .lte('entry_date', end);
+
+          entriesToLink = entries || [];
+          approvedHours = entriesToLink.reduce((s, e) => s + (e.adjusted_hours || e.total_hours), 0);
+
+          // Fetch all assignments (active) for rate lookup per project
+          const { data: assignments } = await db.from('NSC_HR_project_assignments')
+            .select('project_id, rate')
+            .eq('employee_id', emp.id)
+            .eq('active', true);
+          const rateMap = new Map((assignments || []).map(a => [a.project_id, a.rate]));
+
+          basicSalary = entriesToLink.reduce((s, e) => {
+            const hrs = e.adjusted_hours || e.total_hours;
+            const rate = e.project_id && rateMap.has(e.project_id)
+              ? rateMap.get(e.project_id)!
+              : (emp.hourly_rate || 0);
+            return s + hrs * rate;
+          }, 0);
+
+        } else if (emp.salary_type === 'monthly' || emp.salary_type === 'fixed') {
           basicSalary = emp.monthly_salary || 0;
         } else if (emp.salary_type === 'hourly') {
           const [year, m] = month.split('-');
@@ -172,17 +226,15 @@ export async function POST(req: NextRequest) {
           const end   = new Date(parseInt(year), parseInt(m), 0).toISOString().split('T')[0];
 
           const { data: entries } = await db.from('NSC_HR_work_entries')
-            .select('id, total_hours, adjusted_hours')
+            .select('id, total_hours, adjusted_hours, project_id')
             .eq('employee_id', emp.id)
             .eq('status', 'approved')
             .gte('entry_date', start)
             .lte('entry_date', end);
 
-          entriesToLink  = entries || [];
-          approvedHours  = entriesToLink.reduce((s, e) => s + (e.adjusted_hours || e.total_hours), 0);
-          basicSalary    = approvedHours * (emp.hourly_rate || 0);
-        } else if (emp.salary_type === 'fixed' || emp.salary_type === 'monthly') {
-          basicSalary = emp.monthly_salary || 0;
+          entriesToLink = entries || [];
+          approvedHours = entriesToLink.reduce((s, e) => s + (e.adjusted_hours || e.total_hours), 0);
+          basicSalary   = approvedHours * (emp.hourly_rate || 0);
         }
 
         const hra          = emp.emp_type === 'permanent' ? basicSalary * hraRate : 0;
@@ -229,12 +281,21 @@ export async function POST(req: NextRequest) {
 
         // Link approved work entries to this payroll
         if (entriesToLink.length > 0) {
-          const itemRows = entriesToLink.map(e => ({
-            payroll_id:    payrollId,
-            work_entry_id: e.id,
-            hours:         e.adjusted_hours || e.total_hours,
-            amount:        (e.adjusted_hours || e.total_hours) * (emp.hourly_rate || 0),
-          }));
+          // For part-time: resolve per-entry rate from project assignment
+          let rateMapForItems = new Map<string, number>();
+          if (emp.emp_type === 'part-time') {
+            const { data: assignments } = await db.from('NSC_HR_project_assignments')
+              .select('project_id, rate').eq('employee_id', emp.id).eq('active', true);
+            rateMapForItems = new Map((assignments || []).map(a => [a.project_id, a.rate]));
+          }
+          const itemRows = entriesToLink.map(e => {
+            const hrs = e.adjusted_hours || e.total_hours;
+            const entryWithProject = e as typeof e & { project_id?: string };
+            const rate = emp.emp_type === 'part-time' && entryWithProject.project_id && rateMapForItems.has(entryWithProject.project_id)
+              ? rateMapForItems.get(entryWithProject.project_id)!
+              : (emp.hourly_rate || 0);
+            return { payroll_id: payrollId, work_entry_id: e.id, hours: hrs, amount: hrs * rate };
+          });
           // Upsert — in case some entries were already linked (e.g. recalculate after month boundary)
           const { error: itemErr } = await db.from('NSC_HR_payroll_items')
             .upsert(itemRows, { onConflict: 'work_entry_id' });

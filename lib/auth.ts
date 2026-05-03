@@ -18,7 +18,7 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 
 export function generateToken(user: User): string {
   return jwt.sign(
-    { id: user.id, username: user.username, role: user.role, employee_id: user.employee_id },
+    { id: user.id, username: user.username, role: user.role, role_type: user.role_type || 'super_admin', employee_id: user.employee_id },
     JWT_SECRET,
     { expiresIn: '7d' }
   );

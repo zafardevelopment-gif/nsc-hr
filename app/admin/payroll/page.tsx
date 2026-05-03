@@ -33,7 +33,7 @@ export default function PayrollPage() {
   const [showAdjModal, setShowAdjModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedPay, setSelectedPay] = useState<Payroll | null>(null);
-  const [detailEntries, setDetailEntries] = useState<{id:string;entry_date:string;total_hours:number;adjusted_hours?:number;task_description?:string;status:string;created_at?:string}[]>([]);
+  const [detailEntries, setDetailEntries] = useState<{id:string;entry_date:string;total_hours:number;adjusted_hours?:number|null;task_description?:string;status:string;created_at?:string;project_id?:string|null;project?:{project_name:string}|null}[]>([]);
   const [detailAdjs, setDetailAdjs] = useState<{id:string;adj_type:string;amount:number;reason?:string;applied:boolean}[]>([]);
   const [payForm, setPayForm] = useState({ method: 'Bank Transfer', ref: '', date: new Date().toISOString().split('T')[0], notes: '', bank_last4: '' });
   const [adjForm, setAdjForm] = useState({ overtime_pay: '', bonus: '', advance_deduction: '', payment_notes: '' });
@@ -273,16 +273,33 @@ export default function PayrollPage() {
     if (detailEntries.length > 0) {
       doc.setFontSize(11); doc.setFont('helvetica', 'bold');
       doc.text('Approved Work Entries', 14, y + 6); y += 10;
-      const totalHours = detailEntries.reduce((s, e) => s + (e.adjusted_hours || e.total_hours), 0);
+      const approvedEntries = detailEntries.filter(e => e.status === 'approved');
+      const totalHours = approvedEntries.reduce((s, e) => s + (e.adjusted_hours || e.total_hours), 0);
+      const isPartTime = emp?.emp_type === 'part-time';
       autoTable(doc, {
         startY: y,
-        head: [['Date', 'Hours', 'Task Description']],
-        body: detailEntries.map(e => [
-          new Date(e.entry_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'short', year: 'numeric' }),
-          (e.adjusted_hours || e.total_hours).toFixed(2) + (e.adjusted_hours && e.adjusted_hours !== e.total_hours ? ` (orig: ${e.total_hours.toFixed(2)})` : ''),
-          e.task_description || '—',
-        ]),
-        foot: [['', `Total: ${totalHours.toFixed(2)} hrs`, '']],
+        head: [isPartTime ? ['Date', 'Project', 'Hours', 'Task Description'] : ['Date', 'Hours', 'Task Description']],
+        body: approvedEntries.map(e => {
+          const hrs = (e.adjusted_hours || e.total_hours).toFixed(2);
+          const hrsStr = hrs + (e.adjusted_hours && e.adjusted_hours !== e.total_hours ? ` (orig: ${e.total_hours.toFixed(2)})` : '');
+          if (isPartTime) {
+            return [
+              new Date(e.entry_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'short', year: 'numeric' }),
+              e.project?.project_name || '—',
+              hrsStr,
+              e.task_description || '—',
+            ];
+          }
+          return [
+            new Date(e.entry_date).toLocaleDateString('en-SA', { day: '2-digit', month: 'short', year: 'numeric' }),
+            hrsStr,
+            e.task_description || '—',
+          ];
+        }),
+        foot: [isPartTime
+          ? ['', '', `Total: ${totalHours.toFixed(2)} hrs`, `Basic: ${formatCurrency(selectedPay.basic_salary)}`]
+          : ['', `Total: ${totalHours.toFixed(2)} hrs`, '']
+        ],
         theme: 'grid', styles: { fontSize: 8 },
         headStyles: { fillColor: [27, 168, 154] },
         footStyles: { fillColor: [230, 246, 245], textColor: [13, 148, 136], fontStyle: 'bold' },
@@ -872,7 +889,10 @@ export default function PayrollPage() {
                   )}
                   {emp?.salary_type === 'hourly' && totalHours > 0 && (
                     <div style={{ marginTop: 6, fontSize: 13, color: 'var(--text-2)', textAlign: 'right' }}>
-                      {totalHours.toFixed(2)} hrs × {formatCurrency(emp.hourly_rate || 0)}/hr = <strong style={{ color: 'var(--text-1)' }}>{formatCurrency(totalHours * (emp.hourly_rate || 0))}</strong>
+                      {emp.emp_type === 'part-time'
+                        ? <><strong style={{ color: 'var(--text-1)' }}>{formatCurrency(selectedPay.basic_salary)}</strong> (project-based rates)</>
+                        : <>{totalHours.toFixed(2)} hrs × {formatCurrency(emp.hourly_rate || 0)}/hr = <strong style={{ color: 'var(--text-1)' }}>{formatCurrency(totalHours * (emp.hourly_rate || 0))}</strong></>
+                      }
                     </div>
                   )}
                 </div>

@@ -4,27 +4,44 @@ import { Avatar } from '@/components/ui/Avatar';
 import { User } from '@/types';
 import toast from 'react-hot-toast';
 
-const ADMIN_ITEMS = [
-  { href: '/admin/dashboard',     icon: '📊', label: 'Dashboard' },
-  { href: '/admin/employees',     icon: '👥', label: 'Employees' },
+type NavItem =
+  | { section: string }
+  | { href: string; icon: string; label: string; financeOnly?: boolean };
+
+const ADMIN_ITEMS: NavItem[] = [
+  { href: '/admin/dashboard',          icon: '📊', label: 'Dashboard' },
+  { href: '/admin/employees',          icon: '👥', label: 'Employees' },
+  { section: 'Projects' },
+  { href: '/admin/projects',           icon: '📁', label: 'Projects' },
+  { href: '/admin/project-work-logs',  icon: '📋', label: 'Work Logs' },
   { section: 'Operations' },
-  { href: '/admin/work-approval', icon: '⏱️', label: 'Work Entries' },
-  { href: '/admin/leave',         icon: '🗓️', label: 'Leave' },
-  { href: '/admin/adjustments',   icon: '🧾', label: 'Adjustments' },
-  { href: '/admin/payroll',       icon: '💰', label: 'Payroll' },
-  { href: '/admin/documents',     icon: '🪪', label: 'ID Documents' },
-  { href: '/admin/finance',       icon: '💵', label: 'Finance' },
+  { href: '/admin/work-approval',      icon: '⏱️', label: 'Work Entries' },
+  { href: '/admin/leave',              icon: '🗓️', label: 'Leave' },
+  { href: '/admin/adjustments',        icon: '🧾', label: 'Adjustments' },
+  { href: '/admin/payroll',            icon: '💰', label: 'Payroll' },
+  { href: '/admin/documents',          icon: '🪪', label: 'ID Documents' },
+  { href: '/admin/finance',            icon: '💵', label: 'Finance', financeOnly: true },
   { section: 'Insights' },
-  { href: '/admin/reports',       icon: '📈', label: 'Reports' },
-  { href: '/admin/notifications', icon: '🔔', label: 'Notifications' },
-  { href: '/admin/settings',      icon: '⚙️', label: 'Settings' },
+  { href: '/admin/reports',            icon: '📈', label: 'Reports' },
+  { href: '/admin/notifications',      icon: '🔔', label: 'Notifications' },
+  { href: '/admin/settings',           icon: '⚙️', label: 'Settings' },
 ];
 
-const MOBILE_NAV_ITEMS = [
+function getVisibleItems(user: User): NavItem[] {
+  const isSuperAdmin = !user.role_type || user.role_type === 'super_admin';
+  return ADMIN_ITEMS.filter(item => {
+    if ('financeOnly' in item && item.financeOnly && !isSuperAdmin) return false;
+    return true;
+  });
+}
+
+type MobileNavItem = { href: string; icon: string; label: string; financeOnly?: boolean };
+
+const MOBILE_NAV_ITEMS: MobileNavItem[] = [
   { href: '/admin/dashboard',     icon: '📊', label: 'Dashboard' },
   { href: '/admin/employees',     icon: '👥', label: 'Staff' },
-  { href: '/admin/finance',       icon: '💵', label: 'Finance' },
-  { href: '/admin/documents',     icon: '🪪', label: 'IDs' },
+  { href: '/admin/finance',       icon: '💵', label: 'Finance', financeOnly: true },
+  { href: '/admin/projects',      icon: '📁', label: 'Projects' },
   { href: '/admin/payroll',       icon: '💰', label: 'Payroll' },
   { href: '/admin/reports',       icon: '📈', label: 'Reports' },
   { href: '__logout__',           icon: '⎋',  label: 'Logout' },
@@ -37,6 +54,7 @@ interface AdminSidebarProps {
 export function AdminMobileNav({ user }: AdminSidebarProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const isSuperAdmin = !user.role_type || user.role_type === 'super_admin';
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' });
@@ -44,9 +62,11 @@ export function AdminMobileNav({ user }: AdminSidebarProps) {
     router.push('/login');
   }
 
+  const visibleItems = MOBILE_NAV_ITEMS.filter(item => !(item.financeOnly && !isSuperAdmin));
+
   return (
     <div className="mobile-nav">
-      {MOBILE_NAV_ITEMS.map(item => (
+      {visibleItems.map(item => (
         <div
           key={item.href}
           className={`mobile-nav-item ${pathname === item.href ? 'active' : ''}`}
@@ -95,7 +115,7 @@ export function AdminSidebar({ user }: AdminSidebarProps) {
       </div>
 
       <div style={{ flex: 1, padding: '8px 0', overflowY: 'auto' }}>
-        {ADMIN_ITEMS.map((item, i) => {
+        {getVisibleItems(user).map((item, i) => {
           if ('section' in item) {
             return <div key={i} className="sidebar-section">{item.section}</div>;
           }

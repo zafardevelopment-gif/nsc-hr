@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
 
   const db = createServerSupabase();
   let query = db.from('NSC_HR_work_entries')
-    .select('*, employee:NSC_HR_employees(id,full_name,employee_code,department), payroll_item:NSC_HR_payroll_items(payroll_id)', { count: 'exact' });
+    .select('*, employee:NSC_HR_employees(id,full_name,employee_code,department), payroll_item:NSC_HR_payroll_items(payroll_id), project:NSC_HR_projects(id,project_name)', { count: 'exact' });
 
   // Employees can only see their own entries
   if (session.role === 'employee') {
@@ -74,6 +74,7 @@ export async function POST(req: NextRequest) {
       task_description: body.task_description,
       proof_url: body.proof_url,
       proof_filename: body.proof_filename,
+      project_id: body.project_id || null,
       status,
     };
 

@@ -9,12 +9,16 @@ import { SearchInput } from '@/components/ui/SearchInput';
 import { Progress } from '@/components/ui/Progress';
 import { Pagination } from '@/components/ui/Pagination';
 import { useUser } from '@/lib/hooks';
-import { Employee } from '@/types';
+import { Employee, Project, ProjectAssignment } from '@/types';
 import { formatDate, formatCurrency } from '@/lib/utils';
 import toast from 'react-hot-toast';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+
+const RATE_TYPE_LABEL: Record<string, string> = {
+  per_unit: 'Per Unit', per_hour: 'Per Hour', per_day: 'Per Day', fixed: 'Fixed',
+};
 
 const empSchema = z.object({
   full_name: z.string().min(2, 'Name required'),
@@ -60,8 +64,18 @@ export default function EmployeesPage() {
     resolver: zodResolver(empSchema),
     defaultValues: { emp_type: 'permanent', salary_type: 'monthly' },
   });
-  const empType = watch('emp_type');
+  const empType   = watch('emp_type');
   const salaryType = watch('salary_type');
+
+  // ── project assignments (part-time employees) ──────────────
+  const [projects, setProjects]               = useState<Project[]>([]);
+  const [empAssignments, setEmpAssignments]   = useState<ProjectAssignment[]>([]);  // assignments of the employee being viewed/edited
+  const [assLoading, setAssLoading]           = useState(false);
+  // inline assignment form inside add/edit modal
+  const [assProjectId, setAssProjectId]       = useState('');
+  const [assRate, setAssRate]                 = useState('');
+  const [assRateType, setAssRateType]         = useState('per_unit');
+  const [addingAss, setAddingAss]             = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -86,7 +100,59 @@ export default function EmployeesPage() {
       .then(r => r.json())
       .then(j => setDepartments((j.data || []).map((d: { name: string }) => d.name)))
       .catch(() => {});
+    fetch('/api/projects?status=active')
+      .then(r => r.json())
+      .then(j => setProjects(j.data || []))
+      .catch(() => {});
   }, []);
+
+  // Load assignments when editing a part-time employee
+  async function loadEmpAssignments(empId: string) {
+    setAssLoading(true);
+    try {
+      const res = await fetch(`/api/project-assignments?employee_id=${empId}`);
+      const json = await res.json();
+      setEmpAssignments(json.data || []);
+    } catch { /* silent */ }
+    finally { setAssLoading(false); }
+  }
+
+  function resetAssForm() {
+    setAssProjectId(''); setAssRate(''); setAssRateType('per_unit');
+  }
+
+  async function handleAddAssignment(empId: string) {
+    if (!assProjectId) { toast.error('Select a project'); return; }
+    if (assRate === '' || Number(assRate) < 0) { toast.error('Enter a valid rate'); return; }
+    setAddingAss(true);
+    try {
+      const res = await fetch('/api/project-assignments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: assProjectId, employee_id: empId, rate: Number(assRate), rate_type: assRateType }),
+      });
+      const json = await res.json();
+      if (!res.ok) { toast.error(json.error || 'Failed'); return; }
+      toast.success('Project assigned');
+      resetAssForm();
+      loadEmpAssignments(empId);
+    } finally { setAddingAss(false); }
+  }
+
+  async function handleRemoveAssignment(assId: string, empId: string) {
+    const res = await fetch(`/api/project-assignments/${assId}`, { method: 'DELETE' });
+    const json = await res.json();
+    toast.success(json.message || 'Removed');
+    loadEmpAssignments(empId);
+  }
+
+  function closeModal() {
+    setShowAdd(false);
+    setEditEmp(null);
+    setEmpAssignments([]);
+    resetAssForm();
+    reset();
+  }
 
   async function onSubmit(data: EmpForm) {
     setSubmitting(true);
@@ -124,6 +190,8 @@ export default function EmployeesPage() {
 
   function openEdit(emp: Employee) {
     setEditEmp(emp);
+    setEmpAssignments([]);
+    resetAssForm();
     reset({
       full_name: emp.full_name,
       email: emp.email || '',
@@ -142,6 +210,7 @@ export default function EmployeesPage() {
       id_expiry: emp.id_expiry || '',
       notes: emp.notes || '',
     });
+    if (emp.emp_type === 'part-time') loadEmpAssignments(emp.id);
     setShowAdd(true);
   }
 
@@ -162,7 +231,7 @@ export default function EmployeesPage() {
   return (
     <>
       <AdminTopbar title="Employees" user={user}
-        actions={<Button onClick={() => { setEditEmp(null); reset({ emp_type: 'permanent', salary_type: 'monthly' }); setShowAdd(true); }} icon="＋">Add Employee</Button>}
+        actions={<Button onClick={() => { setEditEmp(null); setEmpAssignments([]); resetAssForm(); reset({ emp_type: 'permanent', salary_type: 'monthly' }); setShowAdd(true); }} icon="＋">Add Employee</Button>}
       />
       <div className="page-content">
         {/* Filters */}
@@ -214,7 +283,7 @@ export default function EmployeesPage() {
                     <td><Badge status={e.active ? 'active' : 'inactive'} dot /></td>
                     <td>
                       <div style={{ display: 'flex', gap: 6 }}>
-                        <Button variant="ghost"   size="xs" onClick={() => setSelectedEmp(e)}>View</Button>
+                        <Button variant="ghost"   size="xs" onClick={() => { setSelectedEmp(e); if (e.emp_type === 'part-time') loadEmpAssignments(e.id); }}>View</Button>
                         <Button variant="outline" size="xs" onClick={() => openEdit(e)}>Edit</Button>
                         <Button variant="ghost"   size="xs" style={{ color: 'var(--danger)' }} onClick={() => setDeleteConfirm(e)}>Delete</Button>
                       </div>
@@ -229,9 +298,9 @@ export default function EmployeesPage() {
         </div>
 
         {/* Employee Profile Modal */}
-        <Modal open={!!selectedEmp} onClose={() => setSelectedEmp(null)} title="Employee Profile"
+        <Modal open={!!selectedEmp} onClose={() => { setSelectedEmp(null); setEmpAssignments([]); }} title="Employee Profile"
           footer={<>
-            <Button variant="ghost" onClick={() => setSelectedEmp(null)}>Close</Button>
+            <Button variant="ghost" onClick={() => { setSelectedEmp(null); setEmpAssignments([]); }}>Close</Button>
             <Button variant="outline" onClick={() => { if (selectedEmp) { openEdit(selectedEmp); setSelectedEmp(null); } }}>Edit Profile</Button>
           </>}
         >
@@ -265,6 +334,35 @@ export default function EmployeesPage() {
                   </div>
                 ))}
               </div>
+
+              {/* Project assignments — part-time only */}
+              {selectedEmp.emp_type === 'part-time' && (() => {
+                const activeAss = empAssignments.filter(a => a.active);
+                return (
+                  <div style={{ background: 'var(--bg)', borderRadius: 8, padding: '12px 14px' }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-2)', marginBottom: 8, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Project Assignments
+                    </div>
+                    {assLoading ? (
+                      <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Loading...</div>
+                    ) : activeAss.length === 0 ? (
+                      <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Not assigned to any project yet.</div>
+                    ) : (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                        {activeAss.map(a => (
+                          <div key={a.id} style={{ background: 'var(--primary-light)', border: '1px solid var(--primary)', borderRadius: 8, padding: '6px 12px' }}>
+                            <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--primary)' }}>{a.project?.project_name}</div>
+                            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                              {formatCurrency(a.rate)} / {RATE_TYPE_LABEL[a.rate_type] || a.rate_type}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               {selectedEmp.notes && (
                 <div style={{ background: 'var(--warning-bg)', borderRadius: 8, padding: 12, fontSize: 13, color: 'var(--text-2)' }}>
                   <strong>Notes:</strong> {selectedEmp.notes}
@@ -277,11 +375,11 @@ export default function EmployeesPage() {
         {/* Add/Edit Modal */}
         <Modal
           open={showAdd}
-          onClose={() => { setShowAdd(false); setEditEmp(null); reset(); }}
+          onClose={closeModal}
           title={editEmp ? 'Edit Employee' : 'Add New Employee'}
           maxWidth={600}
           footer={<>
-            <Button variant="ghost" onClick={() => { setShowAdd(false); setEditEmp(null); reset(); }}>Cancel</Button>
+            <Button variant="ghost" onClick={closeModal}>Cancel</Button>
             <Button loading={submitting} onClick={handleSubmit(onSubmit)}>{editEmp ? 'Save Changes' : 'Create Employee'}</Button>
           </>}
         >
@@ -402,6 +500,128 @@ export default function EmployeesPage() {
                 </div>
               </div>
             )}
+            {/* ── Project Assignment — only for part-time ── */}
+            {empType === 'part-time' && (
+              <div style={{ background: 'var(--bg)', borderRadius: 8, padding: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-2)' }}>
+                    Project Assignments
+                    <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-3)', marginLeft: 6 }}>(optional)</span>
+                  </div>
+                </div>
+
+                {/* Existing assignments */}
+                {editEmp && (
+                  assLoading ? (
+                    <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 10 }}>Loading assignments...</div>
+                  ) : empAssignments.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+                      {empAssignments.map(a => (
+                        <div key={a.id} style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          background: a.active ? 'var(--primary-light)' : 'var(--surface)',
+                          border: `1px solid ${a.active ? 'var(--primary)' : 'var(--border-2)'}`,
+                          borderRadius: 8, padding: '8px 12px',
+                          opacity: a.active ? 1 : 0.55,
+                        }}>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: 13, color: a.active ? 'var(--primary)' : 'var(--text-2)' }}>
+                              {a.project?.project_name || a.project_id}
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                              {formatCurrency(a.rate)} / {RATE_TYPE_LABEL[a.rate_type] || a.rate_type}
+                              {!a.active && ' · Deactivated'}
+                            </div>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            style={{ color: 'var(--danger)' }}
+                            onClick={() => handleRemoveAssignment(a.id, editEmp.id)}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 10 }}>
+                      No projects assigned yet.
+                    </div>
+                  )
+                )}
+
+                {!editEmp && (
+                  <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 10 }}>
+                    You can assign projects after creating the employee.
+                  </div>
+                )}
+
+                {/* Add new assignment row (only for existing part-time employee) */}
+                {editEmp && (
+                  (() => {
+                    const assignedIds = new Set(empAssignments.filter(a => a.active).map(a => a.project_id));
+                    const available   = projects.filter(p => !assignedIds.has(p.id));
+                    return available.length > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid var(--border-2)', paddingTop: 10 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase' }}>Assign to Project</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 8, alignItems: 'center' }}>
+                          <select
+                            className="form-select"
+                            value={assProjectId}
+                            onChange={e => setAssProjectId(e.target.value)}
+                          >
+                            <option value="">Select project...</option>
+                            {available.map(p => (
+                              <option key={p.id} value={p.id}>{p.project_name}</option>
+                            ))}
+                          </select>
+                          <input
+                            type="number"
+                            className="form-input"
+                            placeholder="Rate"
+                            min="0"
+                            step="0.01"
+                            value={assRate}
+                            onChange={e => setAssRate(e.target.value)}
+                            style={{ width: 90 }}
+                          />
+                          <select
+                            className="form-select"
+                            value={assRateType}
+                            onChange={e => setAssRateType(e.target.value)}
+                            style={{ width: 100 }}
+                          >
+                            <option value="per_unit">Per Unit</option>
+                            <option value="per_hour">Per Hour</option>
+                            <option value="per_day">Per Day</option>
+                            <option value="fixed">Fixed</option>
+                          </select>
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            loading={addingAss}
+                            onClick={() => handleAddAssignment(editEmp.id)}
+                          >
+                            Assign
+                          </Button>
+                        </div>
+                        {assRate && Number(assRate) > 0 && assProjectId && (
+                          <div style={{ fontSize: 12, color: 'var(--primary)' }}>
+                            Salary = quantity × {formatCurrency(Number(assRate))} per {RATE_TYPE_LABEL[assRateType]?.toLowerCase() || assRateType}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 12, color: 'var(--text-3)', borderTop: '1px solid var(--border-2)', paddingTop: 8 }}>
+                        All active projects are already assigned.
+                      </div>
+                    );
+                  })()
+                )}
+              </div>
+            )}
+
             <div className="form-group">
               <label className="form-label">Notes <span style={{ fontWeight: 400, color: 'var(--text-2)', fontSize: 12 }}>(optional)</span></label>
               <textarea className="form-textarea" rows={2} placeholder="Any notes about this employee..." {...register('notes')} />

@@ -8,7 +8,8 @@ import { Card } from '@/components/ui/Card';
 import { Avatar } from '@/components/ui/Avatar';
 import { useUser } from '@/lib/hooks';
 import { formatCurrency, getMonthOptions, formatDate } from '@/lib/utils';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import { ProjectReport } from '@/types';
 import { Pagination } from '@/components/ui/Pagination';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -22,6 +23,7 @@ const TABS = [
   { key: 'employees',  label: 'Employees' },
   { key: 'finance',    label: 'Finance' },
   { key: 'id_expiry',  label: 'ID Expiry' },
+  { key: 'project_pl', label: 'Project P&L' },
 ];
 const PAGE_SIZE = 15;
 
@@ -59,6 +61,7 @@ export default function ReportsPage() {
   const [page, setPage] = useState(1);
   const [chartData, setChartData] = useState<{ name: string; value: number }[]>([]);
   const [empSplit, setEmpSplit] = useState({ permanent: 0, partTime: 0 });
+  const [projectReports, setProjectReports] = useState<ProjectReport[]>([]);
   const monthOptions = getMonthOptions();
 
   useEffect(() => {
@@ -83,6 +86,13 @@ export default function ReportsPage() {
         } else if (tab === 'id_expiry') {
           const ds = docStatus !== 'all' ? `&status=${docStatus}` : '';
           url = `/api/documents?limit=500${ds}`;
+        } else if (tab === 'project_pl') {
+          const res = await fetch('/api/reports?type=project_pl');
+          const json = await res.json();
+          setProjectReports(json.data || []);
+          setData([]);
+          setLoading(false);
+          return;
         } else {
           url = `/api/reports?type=${tab}&month=${month}`;
         }
@@ -339,7 +349,108 @@ export default function ReportsPage() {
           </Card>
         )}
 
-        {/* Data Table */}
+        {/* Project P&L section */}
+        {tab === 'project_pl' && !loading && (
+          <>
+            {/* Summary stats */}
+            {(() => {
+              const totalIncome  = projectReports.reduce((s, p) => s + Number(p.total_income  || 0), 0);
+              const totalExpense = projectReports.reduce((s, p) => s + Number(p.total_finance_expense || 0) + Number(p.salary_expense || 0), 0);
+              const totalProfit  = totalIncome - totalExpense;
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+                  <div className="card" style={{ padding: '14px 18px' }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, marginBottom: 4 }}>TOTAL INCOME</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: '#16A34A' }}>+{formatCurrency(totalIncome)}</div>
+                  </div>
+                  <div className="card" style={{ padding: '14px 18px' }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, marginBottom: 4 }}>TOTAL EXPENSE</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: '#DC2626' }}>-{formatCurrency(totalExpense)}</div>
+                  </div>
+                  <div className="card" style={{ padding: '14px 18px' }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, marginBottom: 4 }}>NET PROFIT / LOSS</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: totalProfit >= 0 ? '#16A34A' : '#DC2626' }}>
+                      {totalProfit >= 0 ? '+' : ''}{formatCurrency(totalProfit)}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Bar chart */}
+            {projectReports.length > 0 && (
+              <Card title="Project-wise Income vs Expense">
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={projectReports.map(p => ({
+                    name:    p.project_name.length > 14 ? p.project_name.slice(0, 14) + '…' : p.project_name,
+                    Income:  Number(p.total_income  || 0),
+                    Expense: Number(p.total_finance_expense || 0) + Number(p.salary_expense || 0),
+                  }))} margin={{ top: 0, right: 0, bottom: 0, left: -10 }}>
+                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--text-3)' }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
+                    <Tooltip formatter={(v) => [formatCurrency(Number(v)), '']} />
+                    <Legend />
+                    <Bar dataKey="Income"  fill="#16A34A" radius={[4,4,0,0]} />
+                    <Bar dataKey="Expense" fill="#DC2626" radius={[4,4,0,0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </Card>
+            )}
+
+            {/* Project P&L table */}
+            <div className="card" style={{ overflow: 'hidden' }}>
+              <div className="card-header">
+                <div className="card-title">Project Profit & Loss Report</div>
+                <span style={{ fontSize: 13, color: 'var(--text-2)' }}>{projectReports.length} projects</span>
+              </div>
+              {projectReports.length === 0 ? (
+                <div className="empty-state" style={{ padding: 40 }}><div className="empty-icon">📊</div><div>No project data found</div></div>
+              ) : (
+                <div className="table-wrap">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Project</th>
+                        <th>Budget</th>
+                        <th>Status</th>
+                        <th>Income (Credit)</th>
+                        <th>Finance Expense</th>
+                        <th>Salary Expense</th>
+                        <th>Total Expense</th>
+                        <th>Net Profit / Loss</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {projectReports.map(p => {
+                        const totalExp = Number(p.total_finance_expense || 0) + Number(p.salary_expense || 0);
+                        const net      = Number(p.net_profit || 0);
+                        return (
+                          <tr key={p.project_id}>
+                            <td style={{ fontWeight: 700 }}>{p.project_name}</td>
+                            <td className="muted">{p.project_cost ? formatCurrency(p.project_cost) : '—'}</td>
+                            <td><Badge status={p.status === 'active' ? 'active' : 'inactive'} dot>{p.status === 'active' ? 'Active' : 'Inactive'}</Badge></td>
+                            <td><span style={{ color: '#16A34A', fontWeight: 700 }}>+{formatCurrency(Number(p.total_income || 0))}</span></td>
+                            <td><span style={{ color: '#DC2626' }}>-{formatCurrency(Number(p.total_finance_expense || 0))}</span></td>
+                            <td><span style={{ color: '#C2410C' }}>-{formatCurrency(Number(p.salary_expense || 0))}</span></td>
+                            <td><span style={{ color: '#DC2626', fontWeight: 600 }}>-{formatCurrency(totalExp)}</span></td>
+                            <td>
+                              <strong style={{ fontSize: 15, color: net >= 0 ? '#16A34A' : '#DC2626' }}>
+                                {net >= 0 ? '+' : ''}{formatCurrency(net)}
+                              </strong>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* Data Table (non-project tabs) */}
+        {tab !== 'project_pl' && (
         <div className="card" style={{ overflow: 'hidden' }}>
           <div className="card-header">
             <div className="card-title">{TABS.find(t => t.key === tab)?.label} Report</div>
@@ -599,6 +710,7 @@ export default function ReportsPage() {
           )}
           <Pagination page={page} totalPages={totalPages} total={filtered.length} pageSize={PAGE_SIZE} onChange={setPage} label="records" />
         </div>
+        )}
       </div>
     </>
   );

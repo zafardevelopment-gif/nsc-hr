@@ -9,13 +9,13 @@ import { Tabs } from '@/components/ui/Tabs';
 import { Pagination } from '@/components/ui/Pagination';
 import { useUser } from '@/lib/hooks';
 import { formatCurrency, formatDate } from '@/lib/utils';
-import { FinanceEntry } from '@/types';
+import { FinanceEntry, Project } from '@/types';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
 
 const TABS = [
-  { key: 'earning', label: 'Earnings' },
-  { key: 'expense', label: 'Expenses' },
+  { key: 'earning', label: 'Earnings (Credit)' },
+  { key: 'expense', label: 'Expenses (Debit)' },
 ];
 
 const EXPENSE_CATEGORIES = [
@@ -25,47 +25,54 @@ const EXPENSE_CATEGORIES = [
 ];
 
 const PAYMENT_MODES = [
-  { value: 'cash', label: 'Cash' },
+  { value: 'cash',          label: 'Cash' },
   { value: 'bank_transfer', label: 'Bank Transfer' },
-  { value: 'cheque', label: 'Cheque' },
-  { value: 'online', label: 'Online' },
-  { value: 'other', label: 'Other' },
+  { value: 'cheque',        label: 'Cheque' },
+  { value: 'online',        label: 'Online' },
+  { value: 'other',         label: 'Other' },
 ];
 
 const PAGE_SIZE = 15;
 
-const EMPTY_EARNING = { type: 'earning', date: new Date().toISOString().slice(0, 10), description: '', amount: '', received_from: '', payment_mode: '', reference: '', notes: '' };
-const EMPTY_EXPENSE = { type: 'expense', date: new Date().toISOString().slice(0, 10), description: '', amount: '', paid_to: '', category: '', payment_mode: '', notes: '' };
+const EMPTY_EARNING = { type: 'earning', date: new Date().toISOString().slice(0, 10), description: '', amount: '', received_from: '', payment_mode: '', reference: '', notes: '', project_id: '' };
+const EMPTY_EXPENSE = { type: 'expense', date: new Date().toISOString().slice(0, 10), description: '', amount: '', paid_to: '', category: '', payment_mode: '', notes: '', project_id: '' };
 
 export default function FinancePage() {
   const { user } = useUser();
-  const [tab, setTab] = useState<'earning' | 'expense'>('earning');
-  const [entries, setEntries] = useState<FinanceEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const [tab, setTab]             = useState<'earning' | 'expense'>('earning');
+  const [entries, setEntries]     = useState<FinanceEntry[]>([]);
+  const [projects, setProjects]   = useState<Project[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [search, setSearch]       = useState('');
+  const [page, setPage]           = useState(1);
+  const [from, setFrom]           = useState('');
+  const [to, setTo]               = useState('');
+  const [projectFilter, setProjectFilter] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editEntry, setEditEntry] = useState<FinanceEntry | null>(null);
-  const [form, setForm] = useState<Record<string, string>>({ ...EMPTY_EARNING });
-  const [saving, setSaving] = useState(false);
-  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [form, setForm]           = useState<Record<string, string>>({ ...EMPTY_EARNING });
+  const [saving, setSaving]       = useState(false);
+  const [deleteId, setDeleteId]   = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       let url = `/api/finance?type=${tab}&limit=500`;
-      if (from) url += `&from=${from}`;
-      if (to)   url += `&to=${to}`;
+      if (from)          url += `&from=${from}`;
+      if (to)            url += `&to=${to}`;
+      if (projectFilter) url += `&project_id=${projectFilter}`;
       const res = await fetch(url);
       const json = await res.json();
       setEntries(json.data || []);
     } catch { toast.error('Failed to load'); }
     finally { setLoading(false); }
-  }, [tab, from, to]);
+  }, [tab, from, to, projectFilter]);
 
   useEffect(() => { load(); setPage(1); }, [load]);
+
+  useEffect(() => {
+    fetch('/api/projects').then(r => r.json()).then(j => setProjects(j.data || [])).catch(() => {});
+  }, []);
 
   const filtered = entries.filter(e => {
     if (!search) return true;
@@ -75,12 +82,12 @@ export default function FinancePage() {
       (e.received_from || '').toLowerCase().includes(q) ||
       (e.paid_to || '').toLowerCase().includes(q) ||
       (e.category || '').toLowerCase().includes(q) ||
-      (e.reference || '').toLowerCase().includes(q)
+      (e.reference || '').toLowerCase().includes(q) ||
+      (e.project?.project_name || '').toLowerCase().includes(q)
     );
   });
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-
+  const totalPages  = Math.ceil(filtered.length / PAGE_SIZE);
+  const paged       = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const totalAmount = filtered.reduce((s, e) => s + Number(e.amount || 0), 0);
 
   function openAdd() {
@@ -92,16 +99,17 @@ export default function FinancePage() {
   function openEdit(entry: FinanceEntry) {
     setEditEntry(entry);
     setForm({
-      type: entry.type,
-      date: entry.date?.slice(0, 10) || '',
-      description: entry.description,
-      amount: String(entry.amount),
+      type:         entry.type,
+      date:         entry.date?.slice(0, 10) || '',
+      description:  entry.description,
+      amount:       String(entry.amount),
       received_from: entry.received_from || '',
-      paid_to: entry.paid_to || '',
-      category: entry.category || '',
+      paid_to:      entry.paid_to    || '',
+      category:     entry.category   || '',
       payment_mode: entry.payment_mode || '',
-      reference: entry.reference || '',
-      notes: entry.notes || '',
+      reference:    entry.reference  || '',
+      notes:        entry.notes      || '',
+      project_id:   entry.project_id || '',
     });
     setModalOpen(true);
   }
@@ -117,12 +125,12 @@ export default function FinancePage() {
     }
     setSaving(true);
     try {
-      const url = editEntry ? `/api/finance/${editEntry.id}` : '/api/finance';
+      const url    = editEntry ? `/api/finance/${editEntry.id}` : '/api/finance';
       const method = editEntry ? 'PUT' : 'POST';
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, type: tab, amount: Number(form.amount) }),
+        body: JSON.stringify({ ...form, type: tab, amount: Number(form.amount), project_id: form.project_id || null }),
       });
       const json = await res.json();
       if (!res.ok) { toast.error(json.error || 'Failed'); return; }
@@ -141,9 +149,10 @@ export default function FinancePage() {
 
   function exportExcel() {
     const ws = XLSX.utils.json_to_sheet(filtered.map(e => ({
-      Date: formatDate(e.date),
+      Date:        formatDate(e.date),
       Description: e.description,
-      Amount: e.amount,
+      Amount:      e.amount,
+      Project:     e.project?.project_name || '',
       ...(tab === 'earning'
         ? { 'Received From': e.received_from, Reference: e.reference }
         : { 'Paid To': e.paid_to, Category: e.category }),
@@ -180,10 +189,28 @@ export default function FinancePage() {
 
         {/* Filters */}
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <input className="form-input" placeholder={`Search ${isEarning ? 'earnings' : 'expenses'}...`} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} style={{ flex: 1, minWidth: 160 }} />
+          <input
+            className="form-input"
+            placeholder={`Search ${isEarning ? 'earnings' : 'expenses'}...`}
+            value={search}
+            onChange={e => { setSearch(e.target.value); setPage(1); }}
+            style={{ flex: 1, minWidth: 160 }}
+          />
+          <select
+            className="form-select"
+            style={{ width: 'auto' }}
+            value={projectFilter}
+            onChange={e => { setProjectFilter(e.target.value); setPage(1); }}
+          >
+            <option value="">All Projects</option>
+            <option value="__none__">General (No Project)</option>
+            {projects.map(p => <option key={p.id} value={p.id}>{p.project_name}</option>)}
+          </select>
           <input type="date" className="form-input" value={from} onChange={e => setFrom(e.target.value)} style={{ width: 148 }} title="From date" />
-          <input type="date" className="form-input" value={to} onChange={e => setTo(e.target.value)} style={{ width: 148 }} title="To date" />
-          {(from || to) && <Button variant="ghost" size="sm" onClick={() => { setFrom(''); setTo(''); }}>Clear</Button>}
+          <input type="date" className="form-input" value={to}   onChange={e => setTo(e.target.value)}   style={{ width: 148 }} title="To date" />
+          {(from || to || projectFilter) && (
+            <Button variant="ghost" size="sm" onClick={() => { setFrom(''); setTo(''); setProjectFilter(''); }}>Clear</Button>
+          )}
           <Button variant="ghost" size="sm" onClick={exportExcel}>Export Excel</Button>
           <Button variant="primary" size="sm" onClick={openAdd}>+ Add {isEarning ? 'Earning' : 'Expense'}</Button>
         </div>
@@ -207,6 +234,7 @@ export default function FinancePage() {
                     <tr>
                       <th>Date</th>
                       <th>Description</th>
+                      <th>Project</th>
                       <th>{isEarning ? 'Received From' : 'Paid To'}</th>
                       {!isEarning && <th>Category</th>}
                       <th>Payment Mode</th>
@@ -220,6 +248,13 @@ export default function FinancePage() {
                       <tr key={e.id}>
                         <td className="muted">{formatDate(e.date)}</td>
                         <td style={{ fontWeight: 600 }}>{e.description}</td>
+                        <td>
+                          {e.project ? (
+                            <Badge status="primary">{e.project.project_name}</Badge>
+                          ) : (
+                            <span className="muted">General</span>
+                          )}
+                        </td>
                         <td className="muted">{isEarning ? (e.received_from || '—') : (e.paid_to || '—')}</td>
                         {!isEarning && <td>{e.category ? <Badge status="primary">{e.category}</Badge> : <span className="muted">—</span>}</td>}
                         <td className="muted" style={{ textTransform: 'capitalize' }}>{e.payment_mode?.replace('_', ' ') || '—'}</td>
@@ -240,7 +275,7 @@ export default function FinancePage() {
                   </tbody>
                   <tfoot>
                     <tr style={{ background: 'var(--surface)' }}>
-                      <td colSpan={isEarning ? 5 : 5} style={{ fontWeight: 700, padding: '10px 16px', color: 'var(--text-2)' }}>
+                      <td colSpan={isEarning ? 6 : 6} style={{ fontWeight: 700, padding: '10px 16px', color: 'var(--text-2)' }}>
                         Total ({filtered.length} records)
                       </td>
                       <td style={{ fontWeight: 800, fontSize: 16, padding: '10px 16px', color: isEarning ? '#16A34A' : '#DC2626' }}>
@@ -260,6 +295,7 @@ export default function FinancePage() {
                       <div>
                         <div style={{ fontWeight: 700, fontSize: 14 }}>{e.description}</div>
                         <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{formatDate(e.date)}</div>
+                        {e.project && <Badge status="primary" style={{ marginTop: 4 }}>{e.project.project_name}</Badge>}
                       </div>
                       <div style={{ fontWeight: 800, fontSize: 16, color: isEarning ? '#16A34A' : '#DC2626' }}>
                         {isEarning ? '+' : '-'}{formatCurrency(Number(e.amount))}
@@ -288,7 +324,7 @@ export default function FinancePage() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         title={editEntry ? `Edit ${isEarning ? 'Earning' : 'Expense'}` : `Add ${isEarning ? 'Earning' : 'Expense'}`}
-        maxWidth={520}
+        maxWidth={540}
         footer={
           <>
             <Button variant="ghost" onClick={() => setModalOpen(false)}>Cancel</Button>
@@ -309,10 +345,23 @@ export default function FinancePage() {
               <input type="number" className="form-input" placeholder="0.00" min="0" step="0.01" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} />
             </div>
           </div>
+
           <div>
             <label className="form-label">Description *</label>
             <input className="form-input" placeholder={isEarning ? 'e.g. Project payment from client' : 'e.g. Office rent for April'} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
           </div>
+
+          {/* Project (optional) */}
+          <div>
+            <label className="form-label">
+              Project <span style={{ fontWeight: 400, color: 'var(--text-2)', fontSize: 12 }}>(optional — leave blank for general entry)</span>
+            </label>
+            <select className="form-select" value={form.project_id} onChange={e => setForm(f => ({ ...f, project_id: e.target.value }))}>
+              <option value="">General (No Project)</option>
+              {projects.map(p => <option key={p.id} value={p.id}>{p.project_name}{p.client_name ? ` (${p.client_name})` : ''}</option>)}
+            </select>
+          </div>
+
           {isEarning ? (
             <>
               <div>
@@ -357,6 +406,7 @@ export default function FinancePage() {
               </div>
             </>
           )}
+
           <div>
             <label className="form-label">Notes</label>
             <textarea className="form-input" rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Optional notes..." style={{ resize: 'vertical' }} />
