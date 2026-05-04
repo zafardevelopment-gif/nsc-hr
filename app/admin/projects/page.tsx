@@ -12,7 +12,6 @@ import { Project, ProjectAssignment, Employee } from '@/types';
 import toast from 'react-hot-toast';
 
 const RATE_TYPES = [
-  { value: 'per_unit', label: 'Per Unit' },
   { value: 'per_hour', label: 'Per Hour' },
   { value: 'per_day',  label: 'Per Day' },
   { value: 'fixed',    label: 'Fixed' },
@@ -46,7 +45,7 @@ export default function ProjectsPage() {
   const [assLoading, setAssLoading]    = useState(false);
   const [assModalOpen, setAssModal]    = useState(false);
   const [editAss, setEditAss]          = useState<ProjectAssignment | null>(null);
-  const [assForm, setAssForm]          = useState({ employee_id: '', rate: '', rate_type: 'per_unit' });
+  const [assForm, setAssForm]          = useState({ employee_id: '', rate: '', rate_type: 'per_hour' });
   const [assSaving, setAssSaving]      = useState(false);
   const [deleteAssId, setDeleteAssId]  = useState<string | null>(null);
 
@@ -157,7 +156,7 @@ export default function ProjectsPage() {
   // ── assignment CRUD ────────────────────────────────────────
   function openAssignAdd() {
     setEditAss(null);
-    setAssForm({ employee_id: '', rate: '', rate_type: 'per_unit' });
+    setAssForm({ employee_id: '', rate: '', rate_type: 'per_hour' });
     setAssModal(true);
   }
   function openAssignEdit(a: ProjectAssignment) {

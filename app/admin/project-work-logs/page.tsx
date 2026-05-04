@@ -16,7 +16,6 @@ import * as XLSX from 'xlsx';
 const PAGE_SIZE = 20;
 
 const RATE_TYPE_LABEL: Record<string, string> = {
-  per_unit: 'Per Unit',
   per_hour: 'Per Hour',
   per_day:  'Per Day',
   fixed:    'Fixed',

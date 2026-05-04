@@ -17,7 +17,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 
 const RATE_TYPE_LABEL: Record<string, string> = {
-  per_unit: 'Per Unit', per_hour: 'Per Hour', per_day: 'Per Day', fixed: 'Fixed',
+  per_hour: 'Per Hour', per_day: 'Per Day', fixed: 'Fixed',
 };
 
 const empSchema = z.object({
@@ -77,7 +77,7 @@ export default function EmployeesPage() {
   // inline assignment form inside add/edit modal
   const [assProjectId, setAssProjectId]       = useState('');
   const [assRate, setAssRate]                 = useState('');
-  const [assRateType, setAssRateType]         = useState('per_unit');
+  const [assRateType, setAssRateType]         = useState('per_hour');
   const [addingAss, setAddingAss]             = useState(false);
 
   const load = useCallback(async () => {
@@ -121,7 +121,7 @@ export default function EmployeesPage() {
   }
 
   function resetAssForm() {
-    setAssProjectId(''); setAssRate(''); setAssRateType('per_unit');
+    setAssProjectId(''); setAssRate(''); setAssRateType('per_hour');
   }
 
   async function handleAddAssignment(empId: string) {
@@ -622,7 +622,6 @@ export default function EmployeesPage() {
                             onChange={e => setAssRateType(e.target.value)}
                             style={{ width: 100 }}
                           >
-                            <option value="per_unit">Per Unit</option>
                             <option value="per_hour">Per Hour</option>
                             <option value="per_day">Per Day</option>
                             <option value="fixed">Fixed</option>
