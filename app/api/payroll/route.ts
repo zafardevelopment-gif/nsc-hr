@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
     if (!employees || employees.length === 0)
       return NextResponse.json({ error: 'No employees found' }, { status: 400 });
 
-    const results = [];
+    const results: Record<string, unknown>[] = [];
 
     for (const emp of employees) {
       if (supplement) {
