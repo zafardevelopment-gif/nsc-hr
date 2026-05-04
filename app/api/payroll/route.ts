@@ -222,8 +222,15 @@ export async function POST(req: NextRequest) {
             const rateType = assignment?.rate_type ?? 'per_hour';
             if (rateType === 'fixed') return s + rate;
             if (rateType === 'per_day') return s + rate; // 1 entry = 1 day
+            if (rateType === 'per_unit') return s + rate; // per_unit same as per_hour
             return s + hrs * rate; // per_hour
           }, 0);
+
+          // Skip if no rate configured — warn instead of generating a SAR 0 payroll
+          if (basicSalary === 0 && entriesToLink.length > 0) {
+            results.push({ _skipped: true, employee_id: emp.id, full_name: emp.full_name, reason: 'No rate/assignment configured' } as unknown as typeof results[0]);
+            continue;
+          }
 
         } else if (emp.salary_type === 'monthly' || emp.salary_type === 'fixed') {
           basicSalary = emp.monthly_salary || 0;
@@ -326,10 +333,15 @@ export async function POST(req: NextRequest) {
       details: { month, count: results.length, supplement: !!supplement },
     });
 
+    const skipped = results.filter(r => (r as unknown as { _skipped?: boolean })._skipped);
+    const generated = results.filter(r => !(r as unknown as { _skipped?: boolean })._skipped);
     const label = supplement ? 'Supplemental payroll' : 'Payroll';
+    const skippedNames = skipped.map(r => (r as unknown as { full_name?: string }).full_name).filter(Boolean).join(', ');
+    const skippedMsg = skipped.length > 0 ? ` | ${skipped.length} skipped (no rate): ${skippedNames}` : '';
     return NextResponse.json({
-      data: results,
-      message: `${label} processed for ${results.length} employee${results.length !== 1 ? 's' : ''}`,
+      data: generated,
+      skipped,
+      message: `${label} processed for ${generated.length} employee${generated.length !== 1 ? 's' : ''}${skippedMsg}`,
     });
   } catch (err) {
     console.error(err);

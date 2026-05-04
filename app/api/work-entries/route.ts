@@ -64,6 +64,23 @@ export async function POST(req: NextRequest) {
     const isManual = approvalSetting?.setting_value === 'true';
     const status = isManual ? 'pending' : 'approved';
 
+    // If auto-approve: block if same employee already has an approved entry on this date
+    if (!isManual) {
+      const { data: conflict } = await db.from('NSC_HR_work_entries')
+        .select('id')
+        .eq('employee_id', empId)
+        .eq('entry_date', body.entry_date)
+        .eq('status', 'approved')
+        .limit(1)
+        .maybeSingle();
+      if (conflict) {
+        return NextResponse.json(
+          { error: 'Is din ki ek entry already approve ho chuki hai.' },
+          { status: 409 }
+        );
+      }
+    }
+
     const entry = {
       employee_id: empId,
       entry_date: body.entry_date,

@@ -613,7 +613,11 @@ export default function PayrollPage() {
                                 ? 'Unlinked entries after paid payroll — supplement needed'
                                 : `Unlinked entries — payroll is ${item.payroll?.status ?? 'generated'}, recalculate to include`}
                             </span>
-                          : <span style={{ fontSize: 12, color: 'var(--text-2)' }}>No payroll generated</span>}
+                          : <span style={{ fontSize: 12, color: e.emp_type === 'part-time' && !e.hourly_rate ? 'var(--danger)' : 'var(--text-2)' }}>
+                              {e.emp_type === 'part-time' && !e.hourly_rate
+                                ? '⚠ No rate/project assignment — payroll cannot be generated'
+                                : 'No payroll generated'}
+                            </span>}
                       </td>
                       <td>
                         <Button variant="success" size="xs" loading={generatingId === e.id}

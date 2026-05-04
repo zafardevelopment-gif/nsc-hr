@@ -18,6 +18,24 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const wasApproved = entry.status === 'approved';
   const becomingApproved = body.status === 'approved';
 
+  // Block approval if another entry for the same employee+date is already approved
+  if (becomingApproved && !wasApproved) {
+    const { data: conflict } = await db.from('NSC_HR_work_entries')
+      .select('id')
+      .eq('employee_id', entry.employee_id)
+      .eq('entry_date', entry.entry_date)
+      .eq('status', 'approved')
+      .neq('id', id)
+      .limit(1)
+      .maybeSingle();
+    if (conflict) {
+      return NextResponse.json(
+        { error: 'Is din ki ek entry already approve ho chuki hai. Pehle existing approved entry reject karein.' },
+        { status: 409 }
+      );
+    }
+  }
+
   const updateData: Record<string, unknown> = {
     status: body.status,
     admin_remark: body.admin_remark,
