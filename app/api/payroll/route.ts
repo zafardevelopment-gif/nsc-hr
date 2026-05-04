@@ -102,14 +102,16 @@ export async function POST(req: NextRequest) {
         let supplementBasic = 0;
         if (emp.emp_type === 'part-time') {
           const { data: suppAssignments } = await db.from('NSC_HR_project_assignments')
-            .select('project_id, rate').eq('employee_id', emp.id).eq('active', true);
-          const suppRateMap = new Map((suppAssignments || []).map(a => [a.project_id, a.rate]));
+            .select('project_id, rate, rate_type').eq('employee_id', emp.id).eq('active', true);
+          const suppAssignmentMap = new Map((suppAssignments || []).map(a => [a.project_id, a]));
           supplementBasic = unlinkedEntries.reduce((s, e) => {
             const hrs = e.adjusted_hours || e.total_hours;
             const entryWithProject = e as typeof e & { project_id?: string };
-            const rate = entryWithProject.project_id && suppRateMap.has(entryWithProject.project_id)
-              ? suppRateMap.get(entryWithProject.project_id)!
-              : (emp.hourly_rate || 0);
+            const assignment = entryWithProject.project_id ? suppAssignmentMap.get(entryWithProject.project_id) : null;
+            const rate = assignment?.rate ?? (emp.hourly_rate || 0);
+            const rateType = assignment?.rate_type ?? 'per_hour';
+            if (rateType === 'fixed') return s + rate;
+            if (rateType === 'per_day') return s + rate;
             return s + hrs * rate;
           }, 0);
           supplementBasic = Math.round(supplementBasic * 100) / 100;
@@ -149,15 +151,18 @@ export async function POST(req: NextRequest) {
 
         // Link the unlinked entries to this supplement
         const { data: suppAssignments2 } = await db.from('NSC_HR_project_assignments')
-          .select('project_id, rate').eq('employee_id', emp.id).eq('active', true);
-        const suppRateMap2 = new Map((suppAssignments2 || []).map(a => [a.project_id, a.rate]));
+          .select('project_id, rate, rate_type').eq('employee_id', emp.id).eq('active', true);
+        const suppAssignmentMap2 = new Map((suppAssignments2 || []).map(a => [a.project_id, a]));
         const itemRows = unlinkedEntries.map(e => {
           const hrs = e.adjusted_hours || e.total_hours;
           const entryWithProject = e as typeof e & { project_id?: string };
-          const rate = emp.emp_type === 'part-time' && entryWithProject.project_id && suppRateMap2.has(entryWithProject.project_id)
-            ? suppRateMap2.get(entryWithProject.project_id)!
-            : (emp.hourly_rate || 0);
-          return { payroll_id: newSupp.id, work_entry_id: e.id, hours: hrs, amount: hrs * rate };
+          const assignment = emp.emp_type === 'part-time' && entryWithProject.project_id
+            ? suppAssignmentMap2.get(entryWithProject.project_id)
+            : null;
+          const rate = assignment?.rate ?? (emp.hourly_rate || 0);
+          const rateType = assignment?.rate_type ?? 'per_hour';
+          const amount = rateType === 'fixed' ? rate : rateType === 'per_day' ? rate : hrs * rate;
+          return { payroll_id: newSupp.id, work_entry_id: e.id, hours: hrs, amount };
         });
         const { error: itemErr } = await db.from('NSC_HR_payroll_items').insert(itemRows);
         if (itemErr) console.error('Supplement items insert error:', itemErr);
@@ -205,17 +210,19 @@ export async function POST(req: NextRequest) {
 
           // Fetch all assignments (active) for rate lookup per project
           const { data: assignments } = await db.from('NSC_HR_project_assignments')
-            .select('project_id, rate')
+            .select('project_id, rate, rate_type')
             .eq('employee_id', emp.id)
             .eq('active', true);
-          const rateMap = new Map((assignments || []).map(a => [a.project_id, a.rate]));
+          const assignmentMap = new Map((assignments || []).map(a => [a.project_id, a]));
 
           basicSalary = entriesToLink.reduce((s, e) => {
             const hrs = e.adjusted_hours || e.total_hours;
-            const rate = e.project_id && rateMap.has(e.project_id)
-              ? rateMap.get(e.project_id)!
-              : (emp.hourly_rate || 0);
-            return s + hrs * rate;
+            const assignment = e.project_id ? assignmentMap.get(e.project_id) : null;
+            const rate = assignment?.rate ?? (emp.hourly_rate || 0);
+            const rateType = assignment?.rate_type ?? 'per_hour';
+            if (rateType === 'fixed') return s + rate;
+            if (rateType === 'per_day') return s + rate; // 1 entry = 1 day
+            return s + hrs * rate; // per_hour
           }, 0);
 
         } else if (emp.salary_type === 'monthly' || emp.salary_type === 'fixed') {
@@ -282,19 +289,22 @@ export async function POST(req: NextRequest) {
         // Link approved work entries to this payroll
         if (entriesToLink.length > 0) {
           // For part-time: resolve per-entry rate from project assignment
-          let rateMapForItems = new Map<string, number>();
+          let assignmentMapForItems = new Map<string, { rate: number; rate_type: string }>();
           if (emp.emp_type === 'part-time') {
             const { data: assignments } = await db.from('NSC_HR_project_assignments')
-              .select('project_id, rate').eq('employee_id', emp.id).eq('active', true);
-            rateMapForItems = new Map((assignments || []).map(a => [a.project_id, a.rate]));
+              .select('project_id, rate, rate_type').eq('employee_id', emp.id).eq('active', true);
+            assignmentMapForItems = new Map((assignments || []).map(a => [a.project_id, a]));
           }
           const itemRows = entriesToLink.map(e => {
             const hrs = e.adjusted_hours || e.total_hours;
             const entryWithProject = e as typeof e & { project_id?: string };
-            const rate = emp.emp_type === 'part-time' && entryWithProject.project_id && rateMapForItems.has(entryWithProject.project_id)
-              ? rateMapForItems.get(entryWithProject.project_id)!
-              : (emp.hourly_rate || 0);
-            return { payroll_id: payrollId, work_entry_id: e.id, hours: hrs, amount: hrs * rate };
+            const assignment = emp.emp_type === 'part-time' && entryWithProject.project_id
+              ? assignmentMapForItems.get(entryWithProject.project_id)
+              : null;
+            const rate = assignment?.rate ?? (emp.hourly_rate || 0);
+            const rateType = assignment?.rate_type ?? 'per_hour';
+            const amount = rateType === 'fixed' ? rate : rateType === 'per_day' ? rate : hrs * rate;
+            return { payroll_id: payrollId, work_entry_id: e.id, hours: hrs, amount };
           });
           // Upsert — in case some entries were already linked (e.g. recalculate after month boundary)
           const { error: itemErr } = await db.from('NSC_HR_payroll_items')

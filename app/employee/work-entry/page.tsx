@@ -118,7 +118,7 @@ export default function WorkEntryPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div className="form-group">
                 <label className="form-label">Date</label>
-                <input className="form-input" type="date" value={entryDate} onChange={e => setEntryDate(e.target.value)} max={new Date().toISOString().split('T')[0]} />
+                <input className="form-input" type="date" value={entryDate} onChange={e => setEntryDate(e.target.value)} min={user.joining_date} max={new Date().toISOString().split('T')[0]} />
               </div>
 
               {myAssignments.length > 0 && (

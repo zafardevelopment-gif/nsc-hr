@@ -33,7 +33,7 @@ const empSchema = z.object({
   salary_type: z.enum(['monthly', 'hourly', 'fixed']),
   monthly_salary: z.string().optional(),
   hourly_rate: z.string().optional(),
-  id_type: z.enum(['iqama', 'passport', 'national_id']).optional(),
+  id_type: z.enum(['iqama', 'passport', 'national_id', '']).optional(),
   id_number: z.string().optional(),
   id_expiry: z.string().optional(),
   notes: z.string().optional(),
@@ -165,6 +165,9 @@ export default function EmployeesPage() {
         ...data,
         monthly_salary: data.monthly_salary ? parseFloat(data.monthly_salary) : null,
         hourly_rate: data.hourly_rate ? parseFloat(data.hourly_rate) : null,
+        id_type: data.id_type || null,
+        id_number: data.id_number || null,
+        id_expiry: data.id_expiry || null,
         active: true,
       };
 
