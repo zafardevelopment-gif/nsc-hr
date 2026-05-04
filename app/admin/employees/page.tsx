@@ -56,6 +56,9 @@ export default function EmployeesPage() {
   const [selectedEmp, setSelectedEmp] = useState<Employee | null>(null);
   const [editEmp, setEditEmp] = useState<Employee | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Employee | null>(null);
+  const [resetPassEmp, setResetPassEmp] = useState<Employee | null>(null);
+  const [resetNewPassword, setResetNewPassword] = useState('');
+  const [resetSubmitting, setResetSubmitting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [page, setPage] = useState(1);
   const perPage = 20;
@@ -224,6 +227,31 @@ export default function EmployeesPage() {
     } catch { toast.error('Failed to delete'); }
   }
 
+  async function handleResetPassword() {
+    if (!resetPassEmp) return;
+    if (!resetNewPassword || resetNewPassword.length < 6) {
+      toast.error('Password must be at least 6 characters');
+      return;
+    }
+    setResetSubmitting(true);
+    try {
+      const res = await fetch(`/api/employees/${resetPassEmp.id}/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newPassword: resetNewPassword }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed');
+      toast.success('Password reset successfully');
+      setResetPassEmp(null);
+      setResetNewPassword('');
+    } catch (e: unknown) {
+      toast.error((e as Error).message || 'Failed to reset password');
+    } finally {
+      setResetSubmitting(false);
+    }
+  }
+
   const totalPages = Math.ceil(total / perPage);
 
   if (!user) return null;
@@ -285,6 +313,7 @@ export default function EmployeesPage() {
                       <div style={{ display: 'flex', gap: 6 }}>
                         <Button variant="ghost"   size="xs" onClick={() => { setSelectedEmp(e); if (e.emp_type === 'part-time') loadEmpAssignments(e.id); }}>View</Button>
                         <Button variant="outline" size="xs" onClick={() => openEdit(e)}>Edit</Button>
+                        <Button variant="ghost"   size="xs" style={{ color: 'var(--primary)' }} onClick={() => { setResetPassEmp(e); setResetNewPassword(''); }}>Password</Button>
                         <Button variant="ghost"   size="xs" style={{ color: 'var(--danger)' }} onClick={() => setDeleteConfirm(e)}>Delete</Button>
                       </div>
                     </td>
@@ -301,6 +330,7 @@ export default function EmployeesPage() {
         <Modal open={!!selectedEmp} onClose={() => { setSelectedEmp(null); setEmpAssignments([]); }} title="Employee Profile"
           footer={<>
             <Button variant="ghost" onClick={() => { setSelectedEmp(null); setEmpAssignments([]); }}>Close</Button>
+            <Button variant="ghost" style={{ color: 'var(--primary)' }} onClick={() => { if (selectedEmp) { setResetPassEmp(selectedEmp); setResetNewPassword(''); setSelectedEmp(null); setEmpAssignments([]); } }}>Change Password</Button>
             <Button variant="outline" onClick={() => { if (selectedEmp) { openEdit(selectedEmp); setSelectedEmp(null); } }}>Edit Profile</Button>
           </>}
         >
@@ -627,6 +657,43 @@ export default function EmployeesPage() {
               <textarea className="form-textarea" rows={2} placeholder="Any notes about this employee..." {...register('notes')} />
             </div>
           </form>
+        </Modal>
+
+        {/* Reset Password */}
+        <Modal
+          open={!!resetPassEmp}
+          onClose={() => { setResetPassEmp(null); setResetNewPassword(''); }}
+          title="Reset Employee Password"
+          footer={<>
+            <Button variant="ghost" onClick={() => { setResetPassEmp(null); setResetNewPassword(''); }}>Cancel</Button>
+            <Button loading={resetSubmitting} onClick={handleResetPassword}>Reset Password</Button>
+          </>}
+        >
+          {resetPassEmp && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'var(--bg)', borderRadius: 8, padding: '12px 14px' }}>
+                <Avatar name={resetPassEmp.full_name} size="sm" />
+                <div>
+                  <div style={{ fontWeight: 600 }}>{resetPassEmp.full_name}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{resetPassEmp.employee_code} · {resetPassEmp.department}</div>
+                </div>
+              </div>
+              <div className="alert alert-warning">
+                This will immediately reset the employee&apos;s login password. They must use the new password to log in.
+              </div>
+              <div className="form-group">
+                <label className="form-label">New Password</label>
+                <input
+                  className="form-input"
+                  type="password"
+                  placeholder="Minimum 6 characters"
+                  value={resetNewPassword}
+                  onChange={e => setResetNewPassword(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleResetPassword()}
+                />
+              </div>
+            </div>
+          )}
         </Modal>
 
         {/* Delete Confirm */}

@@ -7,10 +7,12 @@ import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Avatar } from '@/components/ui/Avatar';
+import { Modal } from '@/components/ui/Modal';
 import { useUser } from '@/lib/hooks';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { WorkEntry, Payroll, LeaveBalance } from '@/types';
 import { buildPayrollSummary, OVERALL_STATUS_LABEL, OVERALL_STATUS_BADGE } from '@/lib/payrollStatus';
+import toast from 'react-hot-toast';
 
 interface QuickAction {
   icon: string; label: string; sub: string; href: string;
@@ -23,6 +25,12 @@ const QUICK_ACTIONS: QuickAction[] = [
   { icon: '🔔', label: 'Notifications',      sub: 'View alerts',         href: '/employee/notifications' },
 ];
 
+interface PasswordForm {
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+}
+
 export default function EmpDashboard() {
   const { user } = useUser();
   const router = useRouter();
@@ -30,6 +38,9 @@ export default function EmpDashboard() {
   const [currentPayrolls, setCurrentPayrolls] = useState<Payroll[]>([]);
   const [leaveBalances, setLeaveBalances] = useState<LeaveBalance[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showChangePw, setShowChangePw] = useState(false);
+  const [pwForm, setPwForm] = useState<PasswordForm>({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [pwSubmitting, setPwSubmitting] = useState(false);
   const currentMonth = (() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -55,6 +66,38 @@ export default function EmpDashboard() {
     }
     load();
   }, [user]);
+
+  async function handleChangePassword() {
+    if (!pwForm.currentPassword || !pwForm.newPassword) {
+      toast.error('All fields are required');
+      return;
+    }
+    if (pwForm.newPassword.length < 6) {
+      toast.error('New password must be at least 6 characters');
+      return;
+    }
+    if (pwForm.newPassword !== pwForm.confirmPassword) {
+      toast.error('Passwords do not match');
+      return;
+    }
+    setPwSubmitting(true);
+    try {
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword: pwForm.currentPassword, newPassword: pwForm.newPassword }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed');
+      toast.success('Password changed successfully');
+      setShowChangePw(false);
+      setPwForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    } catch (e: unknown) {
+      toast.error((e as Error).message || 'Failed to change password');
+    } finally {
+      setPwSubmitting(false);
+    }
+  }
 
   if (!user) return null;
 
@@ -86,7 +129,7 @@ export default function EmpDashboard() {
               {user.employee?.employee_code} · {user.employee?.department} · {user.employee?.designation}
             </div>
           </div>
-          <div style={{ textAlign: 'right' }}>
+          <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
             {regularPayroll ? (
               <>
                 <div style={{ color: 'var(--success)', fontSize: 24, fontWeight: 800 }}>{formatCurrency(totalNetPay)}</div>
@@ -100,6 +143,12 @@ export default function EmpDashboard() {
             ) : (
               <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>No payroll this month</div>
             )}
+            <button
+              onClick={() => setShowChangePw(true)}
+              style={{ marginTop: 4, padding: '6px 14px', background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 8, cursor: 'pointer', color: 'rgba(255,255,255,0.8)', fontSize: 12, fontWeight: 600 }}
+            >
+              🔑 Change Password
+            </button>
           </div>
         </div>
 
@@ -176,6 +225,51 @@ export default function EmpDashboard() {
           </Card>
         </div>
       </div>
+
+      {/* Change Password Modal */}
+      <Modal
+        open={showChangePw}
+        onClose={() => { setShowChangePw(false); setPwForm({ currentPassword: '', newPassword: '', confirmPassword: '' }); }}
+        title="Change Password"
+        footer={<>
+          <Button variant="ghost" onClick={() => { setShowChangePw(false); setPwForm({ currentPassword: '', newPassword: '', confirmPassword: '' }); }}>Cancel</Button>
+          <Button loading={pwSubmitting} onClick={handleChangePassword}>Update Password</Button>
+        </>}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="form-group">
+            <label className="form-label">Current Password</label>
+            <input
+              className="form-input"
+              type="password"
+              placeholder="Enter your current password"
+              value={pwForm.currentPassword}
+              onChange={e => setPwForm(f => ({ ...f, currentPassword: e.target.value }))}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">New Password</label>
+            <input
+              className="form-input"
+              type="password"
+              placeholder="Minimum 6 characters"
+              value={pwForm.newPassword}
+              onChange={e => setPwForm(f => ({ ...f, newPassword: e.target.value }))}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Confirm New Password</label>
+            <input
+              className="form-input"
+              type="password"
+              placeholder="Repeat new password"
+              value={pwForm.confirmPassword}
+              onChange={e => setPwForm(f => ({ ...f, confirmPassword: e.target.value }))}
+              onKeyDown={e => e.key === 'Enter' && handleChangePassword()}
+            />
+          </div>
+        </div>
+      </Modal>
     </>
   );
 }
