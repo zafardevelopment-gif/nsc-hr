@@ -25,7 +25,7 @@ export async function POST() {
 
   // Filter part-time only
   const partTimeEntries = entries.filter(e => {
-    const emp = e.employee as { emp_type: string } | null;
+    const emp = e.employee as { id: string; emp_type: string; hourly_rate?: number } | null;
     return emp?.emp_type === 'part-time';
   });
 
