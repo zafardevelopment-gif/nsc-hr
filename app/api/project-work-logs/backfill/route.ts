@@ -23,11 +23,20 @@ export async function POST() {
   if (!entries || entries.length === 0)
     return NextResponse.json({ message: 'No approved entries with projects found', inserted: 0 });
 
+  type EntryRow = {
+    id: string;
+    employee_id: string;
+    entry_date: string;
+    total_hours: number;
+    adjusted_hours: number | null;
+    task_description: string | null;
+    project_id: string | null;
+    employee: { id: string; emp_type: string; hourly_rate?: number } | null;
+  };
+  const rows = entries as unknown as EntryRow[];
+
   // Filter part-time only
-  const partTimeEntries = entries.filter(e => {
-    const emp = e.employee as { id: string; emp_type: string; hourly_rate?: number } | null;
-    return emp?.emp_type === 'part-time';
-  });
+  const partTimeEntries = rows.filter(e => e.employee?.emp_type === 'part-time');
 
   if (partTimeEntries.length === 0)
     return NextResponse.json({ message: 'No part-time entries to backfill', inserted: 0 });
@@ -58,8 +67,8 @@ export async function POST() {
     (assignments || []).map(a => [`${a.employee_id}_${a.project_id}`, a])
   );
 
-  const rows = toInsert.map(e => {
-    const emp = e.employee as { hourly_rate?: number } | null;
+  const insertRows = toInsert.map(e => {
+    const emp = e.employee;
     const key = `${e.employee_id}_${e.project_id}`;
     const assignment = assignMap.get(key);
     const hours = e.adjusted_hours || e.total_hours;
@@ -87,18 +96,18 @@ export async function POST() {
 
   const { error: insertErr } = await db
     .from('NSC_HR_project_work_logs')
-    .insert(rows);
+    .insert(insertRows);
 
   if (insertErr) return NextResponse.json({ error: insertErr.message }, { status: 500 });
 
   await db.from('NSC_HR_activity_logs').insert({
     user_id: session.id,
     action: 'BACKFILL_PROJECT_WORK_LOGS',
-    details: { inserted: rows.length },
+    details: { inserted: insertRows.length },
   });
 
   return NextResponse.json({
-    message: `Backfilled ${rows.length} work log${rows.length !== 1 ? 's' : ''} successfully`,
-    inserted: rows.length,
+    message: `Backfilled ${insertRows.length} work log${insertRows.length !== 1 ? 's' : ''} successfully`,
+    inserted: insertRows.length,
   });
 }
