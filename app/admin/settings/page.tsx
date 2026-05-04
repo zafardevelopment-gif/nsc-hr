@@ -560,7 +560,7 @@ export default function SettingsPage() {
             <Card title="Data Maintenance">
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 <div className="alert alert-warning">
-                  Yeh tools data fix karne ke liye hain. Sirf zaroorat par use karein.
+                  These tools are for fixing data issues. Use only when necessary.
                 </div>
 
                 {/* Backfill project work logs */}
@@ -569,8 +569,8 @@ export default function SettingsPage() {
                     Project Work Logs Backfill
                   </div>
                   <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 14 }}>
-                    Un approved part-time work entries ke liye project work logs generate karta hai jinke logs missing hain.
-                    Project P&L report mein salary expense update ho jaega. Safe to run multiple times.
+                    Generates missing project work logs for all approved part-time work entries that have a project assigned.
+                    This updates the Salary Expense column in the Project P&L report. Safe to run multiple times — skips entries already processed.
                   </div>
                   <Button loading={backfilling} onClick={runBackfill}>
                     Run Backfill
