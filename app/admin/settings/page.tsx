@@ -13,7 +13,7 @@ interface Department {
   description: string | null;
 }
 
-const NAV_ITEMS = ['General', 'Payroll Config', 'Leave Policy', 'Departments', 'Admin Users', 'Integrations', 'Security'];
+const NAV_ITEMS = ['General', 'Payroll Config', 'Leave Policy', 'Departments', 'Admin Users', 'Integrations', 'Security', 'Maintenance'];
 
 export default function SettingsPage() {
   const { user } = useUser();
@@ -35,6 +35,7 @@ export default function SettingsPage() {
   const [newAdminPassword, setNewAdminPassword] = useState('');
   const [newAdminRoleType, setNewAdminRoleType] = useState('admin');
   const [addingAdmin, setAddingAdmin] = useState(false);
+  const [backfilling, setBackfilling] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -105,6 +106,18 @@ export default function SettingsPage() {
       toast.success(active ? 'User activated' : 'User deactivated');
       loadAdminUsers();
     } catch (e: unknown) { toast.error((e as Error).message); }
+  }
+
+  async function runBackfill() {
+    if (!confirm('Yeh existing approved work entries ke liye project work logs generate karega. Continue?')) return;
+    setBackfilling(true);
+    try {
+      const res = await fetch('/api/project-work-logs/backfill', { method: 'POST' });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      toast.success(json.message);
+    } catch (e: unknown) { toast.error((e as Error).message); }
+    finally { setBackfilling(false); }
   }
 
   async function changeRoleType(id: string, role_type: string) {
@@ -538,6 +551,30 @@ export default function SettingsPage() {
                 </div>
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                   <Button variant="outline">Change Admin Password</Button>
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {activeNav === 'Maintenance' && (
+            <Card title="Data Maintenance">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div className="alert alert-warning">
+                  Yeh tools data fix karne ke liye hain. Sirf zaroorat par use karein.
+                </div>
+
+                {/* Backfill project work logs */}
+                <div style={{ background: 'var(--bg)', borderRadius: 10, padding: '16px 18px', border: '1px solid var(--border-2)' }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
+                    Project Work Logs Backfill
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 14 }}>
+                    Un approved part-time work entries ke liye project work logs generate karta hai jinke logs missing hain.
+                    Project P&L report mein salary expense update ho jaega. Safe to run multiple times.
+                  </div>
+                  <Button loading={backfilling} onClick={runBackfill}>
+                    Run Backfill
+                  </Button>
                 </div>
               </div>
             </Card>
