@@ -45,8 +45,11 @@ CREATE TABLE IF NOT EXISTS "NSC_HR_project_work_logs" (
   employee_id   UUID NOT NULL REFERENCES "NSC_HR_employees"(id) ON DELETE CASCADE,
   project_id    UUID NOT NULL REFERENCES "NSC_HR_projects"(id) ON DELETE RESTRICT,
   assignment_id UUID REFERENCES "NSC_HR_project_assignments"(id) ON DELETE SET NULL,
+  work_entry_id UUID UNIQUE REFERENCES "NSC_HR_work_entries"(id) ON DELETE SET NULL,
   quantity      NUMERIC(10,2) NOT NULL DEFAULT 1 CHECK (quantity > 0),
   rate          NUMERIC(12,2) NOT NULL DEFAULT 0,
+  rate_type     TEXT NOT NULL DEFAULT 'per_hour'
+                  CHECK (rate_type IN ('per_unit', 'per_hour', 'per_day', 'fixed')),
   total_amount  NUMERIC(12,2) NOT NULL DEFAULT 0,
   date          DATE NOT NULL DEFAULT CURRENT_DATE,
   notes         TEXT,
@@ -55,9 +58,16 @@ CREATE TABLE IF NOT EXISTS "NSC_HR_project_work_logs" (
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_pwl_employee  ON "NSC_HR_project_work_logs"(employee_id);
-CREATE INDEX IF NOT EXISTS idx_pwl_project   ON "NSC_HR_project_work_logs"(project_id);
-CREATE INDEX IF NOT EXISTS idx_pwl_date      ON "NSC_HR_project_work_logs"(date);
+CREATE INDEX IF NOT EXISTS idx_pwl_employee    ON "NSC_HR_project_work_logs"(employee_id);
+CREATE INDEX IF NOT EXISTS idx_pwl_project     ON "NSC_HR_project_work_logs"(project_id);
+CREATE INDEX IF NOT EXISTS idx_pwl_date        ON "NSC_HR_project_work_logs"(date);
+CREATE INDEX IF NOT EXISTS idx_pwl_work_entry  ON "NSC_HR_project_work_logs"(work_entry_id);
+
+-- If table already exists, add missing columns
+ALTER TABLE "NSC_HR_project_work_logs"
+  ADD COLUMN IF NOT EXISTS work_entry_id UUID UNIQUE REFERENCES "NSC_HR_work_entries"(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS rate_type TEXT NOT NULL DEFAULT 'per_hour'
+    CHECK (rate_type IN ('per_unit', 'per_hour', 'per_day', 'fixed'));
 
 -- 5. Add project_id to finance entries
 ALTER TABLE "NSC_HR_finance_entries"

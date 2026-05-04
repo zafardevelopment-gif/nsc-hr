@@ -61,9 +61,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const hours = body.adjusted_hours ?? entry.adjusted_hours ?? entry.total_hours;
     const rate = assignment?.rate ?? emp.hourly_rate ?? 0;
-    const total = hours * rate;
+    const rateType = assignment?.rate_type ?? 'per_hour';
+    const total = (rateType === 'fixed' || rateType === 'per_day' || rateType === 'per_unit')
+      ? rate
+      : hours * rate; // per_hour
 
-    // Insert project work log (skip if already exists for this work entry)
+    // Insert project work log (upsert on work_entry_id to avoid duplicates)
     await db.from('NSC_HR_project_work_logs').upsert({
       employee_id:   entry.employee_id,
       project_id:    entry.project_id,
@@ -71,10 +74,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       work_entry_id: id,
       quantity:      hours,
       rate,
+      rate_type:     rateType,
       total_amount:  Math.round(total * 100) / 100,
       date:          entry.entry_date,
       notes:         entry.task_description,
       created_by:    session.id,
+      updated_at:    new Date().toISOString(),
     }, { onConflict: 'work_entry_id' }).select();
   }
 
